@@ -1,0 +1,20 @@
+name: "Raft Leader Crash"
+description: "Simulates a Raft cluster where the leader crashes after 100 time units, testing leader election and recovery"
+nodeCount: 3
+networkRules:
+  - from: "*"
+    to: "*"
+    delay: 5
+    dropRate: 0.0
+events:
+  - time: 100
+    type: "crash"
+    data:
+      node: "node-0"
+      reason: "simulated_failure"
+  - time: 200
+    type: "recover"
+    data:
+      node: "node-0"
+      state: "follower"
+
