@@ -13,23 +13,28 @@ import java.util.Scanner;
  */
 public class Main {
     private static final Scanner scanner = new Scanner(System.in);
-    private static RaftModel currentModel;
-    private static Determinism determinism;
 
     public static void main(String[] args) {
         System.out.println("Consensus Playground - Distributed Systems Simulation");
         System.out.println("=====================================================");
         
-        // Determinism is now handled by RaftModel
-        
         if (args.length > 0) {
-            loadScenario(Path.of(args[0]));
+            // Load scenario from command line argument
+            loadAndPlayScenario(Path.of(args[0]));
+        } else {
+            // Start REPL loop
+            runInteractiveMode();
         }
-        
-        runInteractiveMode();
     }
     
     private static void runInteractiveMode() {
+        Commands commands = new Commands(scanner);
+        
+        // Print help banner
+        System.out.println("\nWelcome to the Consensus Playground!");
+        System.out.println("Type 'help' for available commands or 'quit' to exit.");
+        System.out.println("Example: init raft --nodes 5 --seed 42");
+        
         while (true) {
             System.out.print("\n> ");
             String input;
@@ -43,34 +48,14 @@ public class Main {
             
             if (input.isEmpty()) continue;
             
-            String[] parts = input.split("\\s+");
-            String command = parts[0].toLowerCase();
-            
-            try {
-                switch (command) {
-                    case "load" -> {
-                        if (parts.length < 2) {
-                            System.out.println("Usage: load <scenario-file>");
-                        } else {
-                            loadScenario(Path.of(parts[1]));
-                        }
-                    }
-                    case "step" -> stepSimulation();
-                    case "status" -> showStatus();
-                    case "help" -> showHelp();
-                    case "quit", "exit" -> {
-                        System.out.println("Goodbye!");
-                        return;
-                    }
-                    default -> System.out.println("Unknown command. Type 'help' for available commands.");
-                }
-            } catch (Exception e) {
-                System.err.println("Error: " + e.getMessage());
+            // Execute command and check if we should continue
+            if (!commands.execute(input)) {
+                return; // Exit requested
             }
         }
     }
     
-    private static void loadScenario(Path scenarioPath) {
+    private static void loadAndPlayScenario(Path scenarioPath) {
         try {
             ScenarioLoader.Scenario scenario = ScenarioLoader.load(scenarioPath);
             
@@ -84,56 +69,30 @@ public class Main {
             }
             
             Long seed = scenario.seed != null ? scenario.seed : System.currentTimeMillis();
-            currentModel = new RaftModel(scenario.cluster.nodes, seed);
+            RaftModel model = new RaftModel(scenario.cluster.nodes, seed);
             
             // Apply scenario to model
-            ScenarioLoader.apply(scenario, currentModel);
+            ScenarioLoader.apply(scenario, model);
             
             System.out.println("Loaded scenario: " + scenarioPath.getFileName());
-            System.out.println("Cluster initialized with " + currentModel.getNodeIds().size() + " nodes");
+            System.out.println("Cluster initialized with " + model.getNodeIds().size() + " nodes");
+            
+            // TODO: Execute timeline and print assertions
+            System.out.println("TODO: Execute timeline and validate assertions");
+            System.out.println("Assertions to validate:");
+            if (scenario.assertions != null) {
+                for (int i = 0; i < scenario.assertions.size(); i++) {
+                    var assertion = scenario.assertions.get(i);
+                    System.out.println("  [" + (i + 1) + "] " + assertion.type + " " + assertion.args);
+                }
+            } else {
+                System.out.println("  No assertions defined");
+            }
+            
         } catch (Exception e) {
             System.err.println("Failed to load scenario: " + e.getMessage());
             e.printStackTrace();
         }
-    }
-    
-    private static void stepSimulation() {
-        if (currentModel == null) {
-            System.out.println("No scenario loaded. Use 'load <file>' first.");
-            return;
-        }
-        
-        currentModel.step();
-        System.out.println("Simulation stepped. Current time: " + currentModel.getCurrentTime());
-    }
-    
-    private static void showStatus() {
-        if (currentModel == null) {
-            System.out.println("No scenario loaded.");
-            return;
-        }
-        
-        System.out.println("Cluster Status:");
-        System.out.println("- Current time: " + currentModel.getCurrentTime());
-        System.out.println("- Node count: " + currentModel.getNodeIds().size());
-        System.out.println("- Pending messages: " + currentModel.cluster().getPendingMessageCount());
-        
-        // Show current leader if any
-        var leader = currentModel.currentLeaderId();
-        if (leader.isPresent()) {
-            System.out.println("- Current leader: " + leader.get());
-        } else {
-            System.out.println("- Current leader: None");
-        }
-    }
-    
-    private static void showHelp() {
-        System.out.println("Available commands:");
-        System.out.println("  load <file>    - Load a scenario file");
-        System.out.println("  step           - Step the simulation forward");
-        System.out.println("  status         - Show current cluster status");
-        System.out.println("  help           - Show this help message");
-        System.out.println("  quit/exit      - Exit the program");
     }
 }
 
