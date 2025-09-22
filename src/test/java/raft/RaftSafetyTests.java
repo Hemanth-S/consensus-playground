@@ -19,7 +19,6 @@ class RaftSafetyTests {
     
     private RaftModel raftModel;
     private MessageBus messageBus;
-    private Determinism determinism;
     
     @BeforeEach
     void setUp() {
@@ -27,7 +26,7 @@ class RaftSafetyTests {
         raftModel = new RaftModel(3);
         messageBus = new MessageBus();
         raftModel.setMessageBus(messageBus);
-        determinism = new Determinism(12345L); // Fixed seed for reproducible tests
+        Determinism.setSeed(12345L); // Fixed seed for reproducible tests
     }
     
     @Test
@@ -35,7 +34,7 @@ class RaftSafetyTests {
     void shouldHaveExactlyOneLeader() {
         // Run simulation for 100 steps
         for (long time = 0; time < 100; time++) {
-            raftModel.step(time, determinism);
+            raftModel.step(time, null);
             
             List<RaftNode> leaders = raftModel.getNodes().stream()
                     .filter(node -> node.getRole() == RaftRole.LEADER && !node.isCrashed())
@@ -53,7 +52,7 @@ class RaftSafetyTests {
         
         // Run simulation for 50 steps
         for (long time = 0; time < 50; time++) {
-            raftModel.step(time, determinism);
+            raftModel.step(time, null);
             
             int currentMaxTerm = raftModel.getCurrentTerm();
             assertTrue(currentMaxTerm >= previousMaxTerm, 
@@ -72,7 +71,7 @@ class RaftSafetyTests {
         // Run simulation until a leader is elected
         boolean leaderElected = false;
         for (long time = 0; time < 200 && !leaderElected; time++) {
-            raftModel.step(time, determinism);
+            raftModel.step(time, null);
             if (raftModel.getLeader() != null) {
                 leaderElected = true;
             }
@@ -87,7 +86,7 @@ class RaftSafetyTests {
     void shouldHandleNodeCrashesGracefully() {
         // Let a leader be elected first
         for (long time = 0; time < 100; time++) {
-            raftModel.step(time, determinism);
+            raftModel.step(time, null);
             if (raftModel.getLeader() != null) break;
         }
         
@@ -106,7 +105,7 @@ class RaftSafetyTests {
         // Run simulation to elect new leader
         boolean newLeaderElected = false;
         for (long time = 100; time < 300 && !newLeaderElected; time++) {
-            raftModel.step(time, determinism);
+            raftModel.step(time, null);
             RaftNode newLeader = raftModel.getLeader();
             if (newLeader != null && !newLeader.getNodeId().equals(leaderId)) {
                 newLeaderElected = true;
@@ -144,7 +143,7 @@ class RaftSafetyTests {
         
         // Verify node can participate in consensus again
         for (long time = 0; time < 50; time++) {
-            raftModel.step(time, determinism);
+            raftModel.step(time, null);
         }
         
         // Recovered node should be able to become leader
@@ -161,7 +160,7 @@ class RaftSafetyTests {
     void shouldHaveConsistentClusterState() {
         // Run simulation for a while
         for (long time = 0; time < 100; time++) {
-            raftModel.step(time, determinism);
+            raftModel.step(time, null);
         }
         
         // Check cluster state consistency
@@ -183,7 +182,7 @@ class RaftSafetyTests {
         long maxTime = 500; // Allow more time for split vote resolution
         
         for (long time = 0; time < maxTime && !leaderElected; time++) {
-            raftModel.step(time, determinism);
+            raftModel.step(time, null);
             if (raftModel.getLeader() != null) {
                 leaderElected = true;
             }
@@ -197,7 +196,7 @@ class RaftSafetyTests {
     void shouldMaintainLogConsistency() {
         // Run simulation to establish a leader
         for (long time = 0; time < 100; time++) {
-            raftModel.step(time, determinism);
+            raftModel.step(time, null);
             if (raftModel.getLeader() != null) break;
         }
         

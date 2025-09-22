@@ -1,71 +1,112 @@
 package sim;
 
 import java.util.*;
-import java.util.concurrent.ConcurrentLinkedQueue;
 
 /**
- * Manages message passing between nodes in the cluster.
- * Handles message queuing, delivery timing, and network rules.
+ * Discrete-time message bus that manages message passing between nodes.
+ * Applies network rules and handles message queuing with tick-based timing.
  */
 public class MessageBus {
-    private final Queue<Message> pendingMessages = new ConcurrentLinkedQueue<>();
+    private final List<NetworkRule> rules = new ArrayList<>();
+    private final Queue<DelayedMessage> delayedMessages = new PriorityQueue<>(Comparator.comparingInt(m -> m.deliveryTime));
     private final Map<String, Queue<Message>> nodeInboxes = new HashMap<>();
+    private int currentTime = 0;
     
     /**
-     * Send a message from one node to another
+     * Represents a message with its delivery time
      */
-    public void sendMessage(String from, String to, Object payload) {
-        Message message = new Message(from, to, payload, 0); // Will be updated with delivery time
-        pendingMessages.offer(message);
-    }
-    
-    /**
-     * Send a message with a specific delivery time
-     */
-    public void sendMessage(String from, String to, Object payload, int deliveryTime) {
-        Message message = new Message(from, to, payload, deliveryTime);
-        pendingMessages.offer(message);
-    }
-    
-    /**
-     * Deliver messages that are ready at the current time
-     */
-    public void deliverMessages(int currentTime, List<NetworkRule> networkRules, Determinism determinism) {
-        Queue<Message> readyMessages = new LinkedList<>();
+    private static class DelayedMessage {
+        final Message message;
+        final int deliveryTime;
         
-        // Find messages ready for delivery
-        Iterator<Message> iterator = pendingMessages.iterator();
-        while (iterator.hasNext()) {
-            Message message = iterator.next();
-            if (message.getDeliveryTime() <= currentTime) {
-                readyMessages.offer(message);
-                iterator.remove();
-            }
-        }
-        
-        // Deliver ready messages (applying network rules)
-        for (Message message : readyMessages) {
-            deliverMessage(message, networkRules, determinism);
+        DelayedMessage(Message message, int deliveryTime) {
+            this.message = message;
+            this.deliveryTime = deliveryTime;
         }
     }
     
     /**
-     * Deliver a single message, applying network rules
+     * Add a network rule
      */
-    private void deliverMessage(Message message, List<NetworkRule> networkRules, Determinism determinism) {
-        // Check if message should be dropped
-        for (NetworkRule rule : networkRules) {
-            if (rule.matches(message.getFrom(), message.getTo())) {
-                if (determinism.shouldDropMessage(rule.getDropRate())) {
-                    // Message dropped
-                    return;
+    public void addRule(NetworkRule rule) {
+        rules.add(rule);
+    }
+    
+    /**
+     * Send a message through the bus
+     */
+    public void send(Message message) {
+        // Apply rules in order
+        for (NetworkRule rule : rules) {
+            if (rule.match.matches(message)) {
+                switch (rule.action) {
+                    case PASS -> {
+                        // Message passes through immediately
+                        deliver(message);
+                        return;
+                    }
+                    case DROP -> {
+                        // Message is dropped
+                        return;
+                    }
+                    case DELAY -> {
+                        // Message is delayed
+                        int deliveryTime = currentTime + rule.delaySteps;
+                        delayedMessages.offer(new DelayedMessage(message, deliveryTime));
+                        return;
+                    }
+                    case DROP_PCT -> {
+                        // Probabilistic drop
+                        if (Determinism.chance(rule.dropPct)) {
+                            return; // Message dropped
+                        }
+                        // Message passes through, continue to next rule
+                    }
                 }
             }
         }
         
-        // Deliver message to recipient's inbox
-        String recipient = message.getTo();
+        // If no rules matched or all rules passed, deliver immediately
+        deliver(message);
+    }
+    
+    /**
+     * Deliver a message to its recipient's inbox
+     */
+    private void deliver(Message message) {
+        String recipient = message.to;
         nodeInboxes.computeIfAbsent(recipient, k -> new LinkedList<>()).offer(message);
+    }
+    
+    /**
+     * Drain all messages ready for delivery at the current time
+     */
+    public List<Message> drainReady() {
+        List<Message> readyMessages = new ArrayList<>();
+        
+        // Process delayed messages that are ready
+        while (!delayedMessages.isEmpty() && delayedMessages.peek().deliveryTime <= currentTime) {
+            DelayedMessage delayedMessage = delayedMessages.poll();
+            deliver(delayedMessage.message);
+            readyMessages.add(delayedMessage.message);
+        }
+        
+        return readyMessages;
+    }
+    
+    /**
+     * Step the message bus forward by one time unit
+     */
+    public void step() {
+        currentTime++;
+        drainReady();
+    }
+    
+    /**
+     * Get the current time
+     */
+    public int now() {
+        return currentTime;
     }
     
     /**
@@ -105,15 +146,23 @@ public class MessageBus {
      * Get the total number of pending messages in the system
      */
     public int getPendingMessageCount() {
-        return pendingMessages.size();
+        return delayedMessages.size();
     }
     
     /**
-     * Clear all messages (useful for testing)
+     * Clear all messages and reset time (useful for testing)
      */
     public void clear() {
-        pendingMessages.clear();
+        delayedMessages.clear();
         nodeInboxes.clear();
+        currentTime = 0;
+    }
+    
+    /**
+     * Get all network rules
+     */
+    public List<NetworkRule> getRules() {
+        return new ArrayList<>(rules);
     }
 }
 

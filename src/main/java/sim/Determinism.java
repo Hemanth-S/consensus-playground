@@ -4,74 +4,84 @@ import java.util.Random;
 
 /**
  * Provides deterministic random number generation for reproducible simulations.
- * Uses seeded random number generation to ensure consistent behavior across runs.
+ * Uses ThreadLocal Random with seeded generation to ensure consistent behavior across runs.
  */
 public class Determinism {
-    private final Random random;
-    private final long seed;
+    private static final ThreadLocal<Random> RANDOM = new ThreadLocal<>();
+    private static long globalSeed = System.currentTimeMillis();
     
-    public Determinism() {
-        this(System.currentTimeMillis());
-    }
-    
-    public Determinism(long seed) {
-        this.seed = seed;
-        this.random = new Random(seed);
+    /**
+     * Set the global seed for deterministic random number generation
+     */
+    public static void setSeed(long seed) {
+        globalSeed = seed;
+        RANDOM.set(new Random(seed));
     }
     
     /**
-     * Get the seed used for random number generation
+     * Get the current ThreadLocal Random instance, creating one if needed
      */
-    public long getSeed() {
-        return seed;
+    private static Random getRandom() {
+        Random random = RANDOM.get();
+        if (random == null) {
+            random = new Random(globalSeed);
+            RANDOM.set(random);
+        }
+        return random;
     }
     
     /**
-     * Reset the random number generator to its initial state
+     * Generate a random boolean with the given probability
      */
-    public void reset() {
-        random.setSeed(seed);
+    public static boolean chance(double p) {
+        return getRandom().nextDouble() < p;
+    }
+    
+    /**
+     * Generate a random integer with jitter between min and max (inclusive)
+     */
+    public static int jitter(int minInclusive, int maxInclusive) {
+        if (minInclusive > maxInclusive) {
+            throw new IllegalArgumentException("minInclusive must be <= maxInclusive");
+        }
+        if (minInclusive == maxInclusive) {
+            return minInclusive;
+        }
+        return minInclusive + getRandom().nextInt(maxInclusive - minInclusive + 1);
     }
     
     /**
      * Generate a random integer between 0 (inclusive) and bound (exclusive)
      */
-    public int nextInt(int bound) {
-        return random.nextInt(bound);
+    public static int nextInt(int bound) {
+        return getRandom().nextInt(bound);
     }
     
     /**
      * Generate a random integer between min (inclusive) and max (exclusive)
      */
-    public int nextInt(int min, int max) {
-        return min + random.nextInt(max - min);
+    public static int nextInt(int min, int max) {
+        return min + getRandom().nextInt(max - min);
     }
     
     /**
      * Generate a random double between 0.0 (inclusive) and 1.0 (exclusive)
      */
-    public double nextDouble() {
-        return random.nextDouble();
+    public static double nextDouble() {
+        return getRandom().nextDouble();
     }
     
     /**
      * Generate a random boolean
      */
-    public boolean nextBoolean() {
-        return random.nextBoolean();
-    }
-    
-    /**
-     * Determine if a message should be dropped based on the given drop rate
-     */
-    public boolean shouldDropMessage(double dropRate) {
-        return nextDouble() < dropRate;
+    public static boolean nextBoolean() {
+        return getRandom().nextBoolean();
     }
     
     /**
      * Select a random element from an array
      */
-    public <T> T selectRandom(T[] array) {
+    public static <T> T selectRandom(T[] array) {
         if (array.length == 0) {
             throw new IllegalArgumentException("Cannot select from empty array");
         }
@@ -81,7 +91,7 @@ public class Determinism {
     /**
      * Select a random element from a list
      */
-    public <T> T selectRandom(java.util.List<T> list) {
+    public static <T> T selectRandom(java.util.List<T> list) {
         if (list.isEmpty()) {
             throw new IllegalArgumentException("Cannot select from empty list");
         }
@@ -91,7 +101,7 @@ public class Determinism {
     /**
      * Shuffle a list in place
      */
-    public <T> void shuffle(java.util.List<T> list) {
+    public static <T> void shuffle(java.util.List<T> list) {
         for (int i = list.size() - 1; i > 0; i--) {
             int j = nextInt(i + 1);
             T temp = list.get(i);
@@ -103,20 +113,29 @@ public class Determinism {
     /**
      * Generate a random election timeout for Raft (typically 150-300ms)
      */
-    public int randomElectionTimeout() {
-        return nextInt(150, 300);
+    public static int randomElectionTimeout() {
+        return jitter(150, 300);
     }
     
     /**
      * Generate a random heartbeat interval for Raft (typically 50-100ms)
      */
-    public int randomHeartbeatInterval() {
-        return nextInt(50, 100);
+    public static int randomHeartbeatInterval() {
+        return jitter(50, 100);
     }
     
-    @Override
-    public String toString() {
-        return String.format("Determinism{seed=%d}", seed);
+    /**
+     * Get the current global seed
+     */
+    public static long getGlobalSeed() {
+        return globalSeed;
+    }
+    
+    /**
+     * Reset the ThreadLocal Random to the current global seed
+     */
+    public static void reset() {
+        RANDOM.set(new Random(globalSeed));
     }
 }
 

@@ -87,7 +87,7 @@ public class Main {
             return;
         }
         
-        currentCluster.step(determinism);
+        currentCluster.step();
         System.out.println("Simulation stepped. Current time: " + currentCluster.getCurrentTime());
     }
     

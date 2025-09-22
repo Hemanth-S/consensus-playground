@@ -4,6 +4,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
 import sim.Cluster;
 import sim.NetworkRule;
+import sim.Message;
+import sim.MessageBus;
 
 import java.io.IOException;
 import java.nio.file.Path;
@@ -39,21 +41,52 @@ public class ScenarioLoader {
     private Cluster createClusterFromScenario(ScenarioDefinition scenario) {
         Cluster cluster = new Cluster();
         
-        // Initialize nodes
+        // Initialize nodes (placeholder nodes for now)
         for (int i = 0; i < scenario.getNodeCount(); i++) {
-            cluster.addNode("node-" + i);
+            String nodeId = "node-" + i;
+            Cluster.Node node = new Cluster.Node() {
+                private boolean up = true;
+                
+                @Override
+                public String id() { return nodeId; }
+                
+                @Override
+                public boolean isUp() { return up; }
+                
+                @Override
+                public void setUp(boolean up) { this.up = up; }
+                
+                @Override
+                public void onTick(MessageBus bus) {
+                    // Placeholder - no action
+                }
+                
+                @Override
+                public void onMessage(Message m, MessageBus bus) {
+                    // Placeholder - no action
+                }
+                
+                @Override
+                public String dump() {
+                    return "placeholder node";
+                }
+            };
+            cluster.add(node);
         }
         
         // Apply network rules
         if (scenario.getNetworkRules() != null) {
             for (NetworkRuleDefinition ruleDef : scenario.getNetworkRules()) {
-                NetworkRule rule = new NetworkRule(
+                NetworkRule.Match match = new NetworkRule.Match(
                     ruleDef.getFrom(),
                     ruleDef.getTo(),
-                    ruleDef.getDelay(),
-                    ruleDef.getDropRate()
+                    "*", // Match any message type
+                    null, null, false
                 );
-                cluster.addNetworkRule(rule);
+                NetworkRule.Action action = ruleDef.getDropRate() > 0 ? 
+                    NetworkRule.Action.DROP_PCT : NetworkRule.Action.DELAY;
+                NetworkRule rule = new NetworkRule(match, action, ruleDef.getDelay(), ruleDef.getDropRate());
+                cluster.getMessageBus().addRule(rule);
             }
         }
         

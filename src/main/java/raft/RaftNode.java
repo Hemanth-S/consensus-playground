@@ -127,7 +127,9 @@ public class RaftNode {
         );
         
         for (String peerId : peerIds) {
-            messageBus.sendMessage(nodeId, peerId, request);
+            Map<String, Object> payload = Map.of("requestVote", request);
+            Message message = new Message(nodeId, peerId, "RequestVote", payload);
+            messageBus.send(message);
         }
         
         System.out.println(nodeId + " started election for term " + currentTerm);
@@ -143,7 +145,9 @@ public class RaftNode {
                 getLastLogIndex(), getLastLogTerm(),
                 Collections.emptyList(), commitIndex
             );
-            messageBus.sendMessage(nodeId, peerId, heartbeat);
+            Map<String, Object> payload = Map.of("heartbeat", heartbeat);
+            Message message = new Message(nodeId, peerId, "AppendEntries", payload);
+            messageBus.send(message);
         }
     }
     
@@ -153,16 +157,20 @@ public class RaftNode {
     private void processMessages(long currentTime, Determinism determinism) {
         List<Message> messages = messageBus.getAllMessages(nodeId);
         for (Message message : messages) {
-            Object payload = message.getPayload();
+            String messageType = message.type;
             
-            if (payload instanceof RaftRpc.RequestVote) {
-                handleRequestVote((RaftRpc.RequestVote) payload, message.getFrom(), determinism);
-            } else if (payload instanceof RaftRpc.RequestVoteResponse) {
-                handleRequestVoteResponse((RaftRpc.RequestVoteResponse) payload, determinism);
-            } else if (payload instanceof RaftRpc.AppendEntries) {
-                handleAppendEntries((RaftRpc.AppendEntries) payload, message.getFrom(), determinism);
-            } else if (payload instanceof RaftRpc.AppendEntriesResponse) {
-                handleAppendEntriesResponse((RaftRpc.AppendEntriesResponse) payload, message.getFrom(), determinism);
+            if ("RequestVote".equals(messageType)) {
+                RaftRpc.RequestVote request = (RaftRpc.RequestVote) message.get("requestVote");
+                handleRequestVote(request, message.from, determinism);
+            } else if ("RequestVoteResponse".equals(messageType)) {
+                RaftRpc.RequestVoteResponse response = (RaftRpc.RequestVoteResponse) message.get("requestVoteResponse");
+                handleRequestVoteResponse(response, determinism);
+            } else if ("AppendEntries".equals(messageType)) {
+                RaftRpc.AppendEntries request = (RaftRpc.AppendEntries) message.get("appendEntries");
+                handleAppendEntries(request, message.from, determinism);
+            } else if ("AppendEntriesResponse".equals(messageType)) {
+                RaftRpc.AppendEntriesResponse response = (RaftRpc.AppendEntriesResponse) message.get("appendEntriesResponse");
+                handleAppendEntriesResponse(response, message.from, determinism);
             }
         }
     }
@@ -188,7 +196,9 @@ public class RaftNode {
         }
         
         RaftRpc.RequestVoteResponse response = new RaftRpc.RequestVoteResponse(currentTerm, voteGranted);
-        messageBus.sendMessage(nodeId, candidateId, response);
+        Map<String, Object> payload = Map.of("requestVoteResponse", response);
+        Message message = new Message(nodeId, candidateId, "RequestVoteResponse", payload);
+        messageBus.send(message);
     }
     
     /**
@@ -244,7 +254,9 @@ public class RaftNode {
         RaftRpc.AppendEntriesResponse response = new RaftRpc.AppendEntriesResponse(
             currentTerm, success, getLastLogIndex()
         );
-        messageBus.sendMessage(nodeId, leaderId, response);
+        Map<String, Object> payload = Map.of("appendEntriesResponse", response);
+        Message message = new Message(nodeId, leaderId, "AppendEntriesResponse", payload);
+        messageBus.send(message);
     }
     
     /**

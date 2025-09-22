@@ -4,74 +4,107 @@ import java.util.Objects;
 
 /**
  * Defines network behavior rules for message passing between nodes.
- * Controls message delays and drop rates for specific node pairs.
+ * Controls message delays, drops, and other network behaviors.
  */
 public class NetworkRule {
-    private final String from;
-    private final String to;
-    private final int delay;
-    private final double dropRate;
     
-    public NetworkRule(String from, String to, int delay, double dropRate) {
-        this.from = from;
-        this.to = to;
-        this.delay = Math.max(0, delay);
-        this.dropRate = Math.max(0.0, Math.min(1.0, dropRate));
+    /**
+     * Actions that can be applied to messages
+     */
+    public enum Action {
+        PASS,    // Allow message to pass through
+        DROP,    // Drop the message completely
+        DELAY,   // Delay the message by delaySteps
+        DROP_PCT // Drop message with probability dropPct
     }
     
     /**
-     * Check if this rule applies to a message from the given sender to the given recipient
+     * Match criteria for network rules
      */
-    public boolean matches(String from, String to) {
-        return (this.from.equals("*") || this.from.equals(from)) &&
-               (this.to.equals("*") || this.to.equals(to));
+    public record Match(
+        String from,        // Source node ID (null or "*" matches any)
+        String to,          // Destination node ID (null or "*" matches any)
+        String type,        // Message type (null or "*" matches any)
+        String betweenA,    // First node in bidirectional match (null if not bidirectional)
+        String betweenB,    // Second node in bidirectional match (null if not bidirectional)
+        boolean bidirectional // Whether this is a bidirectional rule
+    ) {
+        public Match {
+            // Canonical constructor - normalize nulls to empty strings for easier matching
+            from = from == null ? "*" : from;
+            to = to == null ? "*" : to;
+            type = type == null ? "*" : type;
+            betweenA = betweenA == null ? "*" : betweenA;
+            betweenB = betweenB == null ? "*" : betweenB;
+        }
+        
+        /**
+         * Check if this match applies to a message
+         */
+        public boolean matches(Message message) {
+            if (bidirectional) {
+                return (betweenA.equals("*") || betweenA.equals(message.from) || betweenA.equals(message.to)) &&
+                       (betweenB.equals("*") || betweenB.equals(message.from) || betweenB.equals(message.to)) &&
+                       (type.equals("*") || type.equals(message.type));
+            } else {
+                return (from.equals("*") || from.equals(message.from)) &&
+                       (to.equals("*") || to.equals(message.to)) &&
+                       (type.equals("*") || type.equals(message.type));
+            }
+        }
+    }
+    
+    public final Match match;
+    public final Action action;
+    public final int delaySteps;
+    public final double dropPct;
+    
+    public NetworkRule(Match match, Action action, int delaySteps, double dropPct) {
+        this.match = match;
+        this.action = action;
+        this.delaySteps = Math.max(0, delaySteps);
+        this.dropPct = Math.max(0.0, Math.min(1.0, dropPct));
     }
     
     /**
-     * Calculate the delivery time for a message sent at the given time
+     * Create a simple pass-through rule
      */
-    public int calculateDeliveryTime(int sendTime) {
-        return sendTime + delay;
-    }
-    
-    // Getters
-    public String getFrom() { return from; }
-    public String getTo() { return to; }
-    public int getDelay() { return delay; }
-    public double getDropRate() { return dropRate; }
-    
-    /**
-     * Create a bidirectional network rule (applies in both directions)
-     */
-    public static NetworkRule bidirectional(String node1, String node2, int delay, double dropRate) {
-        return new NetworkRule(node1, node2, delay, dropRate);
+    public static NetworkRule pass(String from, String to, String type) {
+        return new NetworkRule(new Match(from, to, type, null, null, false), Action.PASS, 0, 0.0);
     }
     
     /**
-     * Create a rule that applies to all messages from a specific node
+     * Create a drop rule
      */
-    public static NetworkRule fromNode(String from, int delay, double dropRate) {
-        return new NetworkRule(from, "*", delay, dropRate);
+    public static NetworkRule drop(String from, String to, String type) {
+        return new NetworkRule(new Match(from, to, type, null, null, false), Action.DROP, 0, 0.0);
     }
     
     /**
-     * Create a rule that applies to all messages to a specific node
+     * Create a delay rule
      */
-    public static NetworkRule toNode(String to, int delay, double dropRate) {
-        return new NetworkRule("*", to, delay, dropRate);
+    public static NetworkRule delay(String from, String to, String type, int delaySteps) {
+        return new NetworkRule(new Match(from, to, type, null, null, false), Action.DELAY, delaySteps, 0.0);
     }
     
     /**
-     * Create a rule that applies to all messages in the network
+     * Create a probabilistic drop rule
      */
-    public static NetworkRule global(int delay, double dropRate) {
-        return new NetworkRule("*", "*", delay, dropRate);
+    public static NetworkRule dropPct(String from, String to, String type, double dropPct) {
+        return new NetworkRule(new Match(from, to, type, null, null, false), Action.DROP_PCT, 0, dropPct);
+    }
+    
+    /**
+     * Create a bidirectional rule
+     */
+    public static NetworkRule bidirectional(String nodeA, String nodeB, String type, Action action, int delaySteps, double dropPct) {
+        return new NetworkRule(new Match(null, null, type, nodeA, nodeB, true), action, delaySteps, dropPct);
     }
     
     @Override
     public String toString() {
-        return String.format("NetworkRule{from='%s', to='%s', delay=%d, dropRate=%.2f}", 
-                           from, to, delay, dropRate);
+        return String.format("NetworkRule{match=%s, action=%s, delaySteps=%d, dropPct=%.2f}", 
+                           match, action, delaySteps, dropPct);
     }
     
     @Override
@@ -80,15 +113,15 @@ public class NetworkRule {
         if (obj == null || getClass() != obj.getClass()) return false;
         
         NetworkRule that = (NetworkRule) obj;
-        return delay == that.delay &&
-               Double.compare(that.dropRate, dropRate) == 0 &&
-               Objects.equals(from, that.from) &&
-               Objects.equals(to, that.to);
+        return delaySteps == that.delaySteps &&
+               Double.compare(that.dropPct, dropPct) == 0 &&
+               Objects.equals(match, that.match) &&
+               action == that.action;
     }
     
     @Override
     public int hashCode() {
-        return Objects.hash(from, to, delay, dropRate);
+        return Objects.hash(match, action, delaySteps, dropPct);
     }
 }
 
