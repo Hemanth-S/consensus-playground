@@ -19,10 +19,13 @@ This project provides a deterministic simulation environment for testing and und
 # Build the project
 ./gradlew build
 
-# Run the application
-./gradlew run
+# Run with a specific scenario file (recommended)
+./run scenarios/raft_leader_crash.yml
 
-# Run with a specific scenario file
+# For true interactive mode (run this directly in a terminal)
+./run-interactive
+
+# Alternative: Run directly with Gradle
 ./gradlew run --args="scenarios/raft_leader_crash.yml"
 ```
 

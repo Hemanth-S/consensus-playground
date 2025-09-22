@@ -1,0 +1,16 @@
+#!/bin/bash
+
+# Build first
+./gradlew build
+
+# Set up classpath with all required JARs
+JACKSON_DATABIND="/Users/hemanth/.gradle/caches/modules-2/files-2.1/com.fasterxml.jackson.core/jackson-databind/2.16.0/3a6b7f8ff7b30d518bbd65678e9c30cd881f19a7/jackson-databind-2.16.0.jar"
+JACKSON_CORE="/Users/hemanth/.gradle/caches/modules-2/files-2.1/com.fasterxml.jackson.core/jackson-core/2.16.0/899e5cf01be55fbf094ad72b2edb0c5df99111ee/jackson-core-2.16.0.jar"
+JACKSON_ANNOTATIONS="/Users/hemanth/.gradle/caches/modules-2/files-2.1/com.fasterxml.jackson.core/jackson-annotations/2.16.0/dc30995f7428c0a405eba9b8c619b20d2b3b9905/jackson-annotations-2.16.0.jar"
+JACKSON_YAML="/Users/hemanth/.gradle/caches/modules-2/files-2.1/com.fasterxml.jackson.dataformat/jackson-dataformat-yaml/2.16.0/2033e2c5f531785d17f3a2bc31842e3bbb7983b2/jackson-dataformat-yaml-2.16.0.jar"
+SNAKEYAML="/Users/hemanth/.gradle/caches/modules-2/files-2.1/org.yaml/snakeyaml/2.2/3af797a25458550a16bf89acc8e4ab2b7f2bfce0/snakeyaml-2.2.jar"
+
+CLASSPATH="build/classes/java/main:$JACKSON_DATABIND:$JACKSON_CORE:$JACKSON_ANNOTATIONS:$JACKSON_YAML:$SNAKEYAML"
+
+# Run with proper classpath for true interactive mode
+java -cp "$CLASSPATH" app.Main "$@"

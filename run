@@ -1,0 +1,13 @@
+#!/bin/bash
+
+# Build first
+./gradlew build
+
+# Use Gradle run for proper classpath handling
+if [ $# -gt 0 ]; then
+    # We have arguments - pass them to Gradle
+    ./gradlew run --args="$*"
+else
+    # No arguments - run without --args
+    ./gradlew run
+fi
