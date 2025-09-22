@@ -242,7 +242,12 @@ public class RaftNode implements Cluster.Node {
                 
                 // Append new entries
                 if (request.getEntries() != null && !request.getEntries().isEmpty()) {
-                    // TODO: Implement log replication logic
+                    // Remove any conflicting entries
+                    if (request.getPrevLogIndex() < log.size()) {
+                        log.subList(request.getPrevLogIndex(), log.size()).clear();
+                    }
+                    // Append new entries
+                    log.addAll(request.getEntries());
                 }
                 
                 // Update commit index
@@ -453,6 +458,76 @@ public class RaftNode implements Cluster.Node {
             sb.append(", matchIndex=").append(matchIndex);
         }
         return sb.toString();
+    }
+    
+    /**
+     * Add a client command to the log (only works for leaders)
+     * 
+     * @param command The client command to add
+     * @return true if the command was added, false if not a leader
+     */
+    public boolean addClientCommand(String command) {
+        if (role != RaftRole.LEADER) {
+            return false;
+        }
+        
+        // Create a new log entry with the current term and next index
+        int nextIndex = log.size() + 1;
+        RaftLogEntry entry = new RaftLogEntry(currentTerm, nextIndex, command);
+        log.add(entry);
+        
+        // Send AppendEntries to all followers
+        sendAppendEntriesToFollowers();
+        
+        return true;
+    }
+    
+    /**
+     * Send AppendEntries RPCs to all followers with new log entries
+     */
+    private void sendAppendEntriesToFollowers() {
+        for (String peerId : peerIds) {
+            int nextIdx = nextIndex.getOrDefault(peerId, 1);
+            int prevLogIndex = nextIdx - 1;
+            int prevLogTerm = 0;
+            
+            if (prevLogIndex > 0) {
+                RaftLogEntry prevEntry = getLogEntry(prevLogIndex);
+                if (prevEntry != null) {
+                    prevLogTerm = prevEntry.getTerm();
+                }
+            }
+            
+            // Get entries to send (from nextIdx to end of log)
+            List<RaftLogEntry> entriesToSend = new ArrayList<>();
+            if (nextIdx <= log.size()) {
+                entriesToSend = log.subList(nextIdx - 1, log.size());
+            }
+            
+            RaftRpc.AppendEntries request = new RaftRpc.AppendEntries(
+                currentTerm, nodeId, prevLogIndex, prevLogTerm, entriesToSend, commitIndex
+            );
+            
+            Map<String, Object> payload = Map.of("heartbeat", request);
+            Message message = new Message(nodeId, peerId, "AppendEntries", payload);
+            messageBus.send(message);
+        }
+    }
+    
+    /**
+     * Handle a client command (for followers, forward to leader if known)
+     * 
+     * @param command The client command
+     * @return true if handled, false if not a leader and no leader known
+     */
+    public boolean handleClientCommand(String command) {
+        if (role == RaftRole.LEADER) {
+            return addClientCommand(command);
+        } else {
+            // For followers, we would typically forward to the leader
+            // For now, just return false to indicate we can't handle it
+            return false;
+        }
     }
     
     // Getters

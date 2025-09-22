@@ -136,26 +136,35 @@ public class RaftModel {
             // Send to current leader
             RaftNode leader = nodesById.get(leaderId.get());
             if (leader != null && leader.isUp()) {
-                // For now, just log the command - real implementation would
-                // add it to the leader's log and start replication
                 System.out.println("Client write to leader " + leaderId.get() + ": " + command);
                 
-                // TODO: Implement actual log replication
-                // This would involve:
-                // 1. Adding the command to the leader's log
-                // 2. Sending AppendEntries RPCs to followers
-                // 3. Waiting for majority acknowledgment
-                // 4. Committing the entry
+                // Add command to leader's log and start replication
+                boolean success = leader.addClientCommand(command);
+                if (success) {
+                    System.out.println("Command added to leader's log and replication started");
+                } else {
+                    System.out.println("Failed to add command to leader's log");
+                }
             }
         } else {
             // No leader known, send to all nodes (naive approach)
             System.out.println("No leader known, broadcasting client write to all nodes: " + command);
+            boolean handled = false;
             for (String nodeId : nodeIds) {
                 RaftNode node = nodesById.get(nodeId);
                 if (node != null && node.isUp()) {
-                    // TODO: Implement actual command handling
-                    System.out.println("  -> " + nodeId);
+                    boolean success = node.handleClientCommand(command);
+                    if (success) {
+                        System.out.println("  -> " + nodeId + " (handled as leader)");
+                        handled = true;
+                        break; // Only one node should handle it
+                    } else {
+                        System.out.println("  -> " + nodeId + " (not leader)");
+                    }
                 }
+            }
+            if (!handled) {
+                System.out.println("No active leader found to handle command");
             }
         }
     }
