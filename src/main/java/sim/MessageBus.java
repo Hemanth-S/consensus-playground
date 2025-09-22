@@ -33,6 +33,20 @@ public class MessageBus {
     }
     
     /**
+     * Remove a specific network rule
+     */
+    public boolean removeRule(NetworkRule rule) {
+        return rules.remove(rule);
+    }
+    
+    /**
+     * Clear all network rules
+     */
+    public void clearRules() {
+        rules.clear();
+    }
+    
+    /**
      * Send a message through the bus
      */
     public void send(Message message) {

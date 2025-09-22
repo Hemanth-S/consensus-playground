@@ -420,16 +420,24 @@ public class RaftNode implements Cluster.Node {
         
         if ("RequestVote".equals(messageType)) {
             RaftRpc.RequestVote request = (RaftRpc.RequestVote) m.get("requestVote");
-            handleRequestVote(request, m.from, null);
+            if (request != null) {
+                handleRequestVote(request, m.from, null);
+            }
         } else if ("RequestVoteResponse".equals(messageType)) {
             RaftRpc.RequestVoteResponse response = (RaftRpc.RequestVoteResponse) m.get("requestVoteResponse");
-            handleRequestVoteResponse(response, null);
+            if (response != null) {
+                handleRequestVoteResponse(response, null);
+            }
         } else if ("AppendEntries".equals(messageType)) {
-            RaftRpc.AppendEntries request = (RaftRpc.AppendEntries) m.get("appendEntries");
-            handleAppendEntries(request, m.from, null);
+            RaftRpc.AppendEntries request = (RaftRpc.AppendEntries) m.get("heartbeat");
+            if (request != null) {
+                handleAppendEntries(request, m.from, null);
+            }
         } else if ("AppendEntriesResponse".equals(messageType)) {
             RaftRpc.AppendEntriesResponse response = (RaftRpc.AppendEntriesResponse) m.get("appendEntriesResponse");
-            handleAppendEntriesResponse(response, m.from, null);
+            if (response != null) {
+                handleAppendEntriesResponse(response, m.from, null);
+            }
         }
     }
     

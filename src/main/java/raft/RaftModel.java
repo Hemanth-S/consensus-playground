@@ -1,218 +1,254 @@
 package raft;
 
+import sim.Cluster;
 import sim.Determinism;
+import sim.Message;
+import sim.MessageBus;
+import sim.NetworkRule;
 
 import java.util.*;
+import java.util.stream.Collectors;
 
 /**
- * Represents the complete Raft consensus model.
- * Manages a cluster of Raft nodes and provides high-level operations.
+ * High-level abstraction for Raft consensus simulation.
+ * Wires a Cluster of RaftNodes and exposes operations for CLI/scenarios.
+ * 
+ * This class serves as the abstraction boundary, allowing the same CLI/scenario
+ * code to work with different consensus algorithms (Raft, Paxos, etc.).
  */
 public class RaftModel {
-    private final List<RaftNode> nodes = new ArrayList<>();
-    private final Map<String, RaftNode> nodeMap = new HashMap<>();
-    private final List<String> nodeIds = new ArrayList<>();
+    private final Cluster cluster;
+    private final Map<String, RaftNode> nodesById;
+    private final List<String> nodeIds;
     
     /**
-     * Create a new Raft model with the specified number of nodes
+     * Create a new RaftModel with the specified nodes and random seed.
+     * 
+     * @param nodeIds List of node IDs to create
+     * @param seed Random seed for deterministic simulation
      */
-    public RaftModel(int nodeCount) {
-        for (int i = 0; i < nodeCount; i++) {
-            String nodeId = "node-" + i;
-            nodeIds.add(nodeId);
+    public RaftModel(List<String> nodeIds, long seed) {
+        this.nodeIds = new ArrayList<>(nodeIds);
+        this.cluster = new Cluster();
+        this.nodesById = new HashMap<>();
+        
+        // Set deterministic seed
+        Determinism.setSeed(seed);
+        
+        // Create RaftNodes and add to cluster
+        for (String nodeId : nodeIds) {
+            List<String> peers = nodeIds.stream()
+                .filter(id -> !id.equals(nodeId))
+                .collect(Collectors.toList());
+            
+            RaftNode node = new RaftNode(nodeId, peers);
+            node.setMessageBus(cluster.getMessageBus());
+            
+            nodesById.put(nodeId, node);
+            cluster.add(node);
+        }
+    }
+    
+    /**
+     * Get the underlying cluster for direct access if needed.
+     * 
+     * @return The simulation cluster
+     */
+    public Cluster cluster() {
+        return cluster;
+    }
+    
+    /**
+     * Crash a specific node.
+     * 
+     * @param id Node ID to crash
+     */
+    public void crash(String id) {
+        RaftNode node = nodesById.get(id);
+        if (node != null) {
+            node.setUp(false);
+            System.out.println("Node " + id + " crashed");
+        } else {
+            System.out.println("Node " + id + " not found");
+        }
+    }
+    
+    /**
+     * Recover a specific node.
+     * 
+     * @param id Node ID to recover
+     */
+    public void recover(String id) {
+        RaftNode node = nodesById.get(id);
+        if (node != null) {
+            node.setUp(true);
+            System.out.println("Node " + id + " recovered");
+        } else {
+            System.out.println("Node " + id + " not found");
+        }
+    }
+    
+    /**
+     * Create a network partition between two groups of nodes.
+     * Messages between the groups will be dropped.
+     * 
+     * @param groupA First group of node IDs
+     * @param groupB Second group of node IDs
+     */
+    public void partition(List<String> groupA, List<String> groupB) {
+        MessageBus bus = cluster.getMessageBus();
+        
+        // Add rules to drop messages between the two groups
+        for (String nodeA : groupA) {
+            for (String nodeB : groupB) {
+                // Drop messages from groupA to groupB
+                NetworkRule rule1 = NetworkRule.drop(nodeA, nodeB, "*");
+                bus.addRule(rule1);
+                
+                // Drop messages from groupB to groupA
+                NetworkRule rule2 = NetworkRule.drop(nodeB, nodeA, "*");
+                bus.addRule(rule2);
+            }
         }
         
-        // Create nodes with peer references
-        for (String nodeId : nodeIds) {
-            List<String> peers = new ArrayList<>(nodeIds);
-            peers.remove(nodeId);
-            
-            RaftNode node = new RaftNode(nodeId, peers, null); // MessageBus will be set later
-            nodes.add(node);
-            nodeMap.put(nodeId, node);
-        }
+        System.out.println("Network partition created between groups: " + groupA + " and " + groupB);
     }
     
     /**
-     * Set the message bus for all nodes
+     * Clear all network partitions by removing all network rules.
      */
-    public void setMessageBus(sim.MessageBus messageBus) {
-        for (RaftNode node : nodes) {
-            node.setMessageBus(messageBus);
-        }
+    public void clearPartitions() {
+        MessageBus bus = cluster.getMessageBus();
+        bus.clearRules();
+        System.out.println("Network partitions cleared (all rules removed)");
     }
     
     /**
-     * Step all nodes forward by one time unit
+     * Send a client write command to the current leader.
+     * If no leader is known, sends to all nodes (naive approach).
+     * 
+     * @param command The command to write
      */
-    public void step(long currentTime, Determinism determinism) {
-        for (RaftNode node : nodes) {
-            if (!node.isCrashed()) {
-                node.step(currentTime, determinism);
+    public void clientWrite(String command) {
+        Optional<String> leaderId = currentLeaderId();
+        
+        if (leaderId.isPresent()) {
+            // Send to current leader
+            RaftNode leader = nodesById.get(leaderId.get());
+            if (leader != null && leader.isUp()) {
+                // For now, just log the command - real implementation would
+                // add it to the leader's log and start replication
+                System.out.println("Client write to leader " + leaderId.get() + ": " + command);
+                
+                // TODO: Implement actual log replication
+                // This would involve:
+                // 1. Adding the command to the leader's log
+                // 2. Sending AppendEntries RPCs to followers
+                // 3. Waiting for majority acknowledgment
+                // 4. Committing the entry
+            }
+        } else {
+            // No leader known, send to all nodes (naive approach)
+            System.out.println("No leader known, broadcasting client write to all nodes: " + command);
+            for (String nodeId : nodeIds) {
+                RaftNode node = nodesById.get(nodeId);
+                if (node != null && node.isUp()) {
+                    // TODO: Implement actual command handling
+                    System.out.println("  -> " + nodeId);
+                }
             }
         }
     }
     
     /**
-     * Get the current leader (if any)
+     * Find the current leader by scanning all nodes for LEADER role.
+     * This is a naive implementation - in a real system, we'd have better leader discovery.
+     * 
+     * @return Optional containing the leader ID if found
      */
-    public RaftNode getLeader() {
-        return nodes.stream()
-                   .filter(node -> node.getRole() == RaftRole.LEADER && !node.isCrashed())
-                   .findFirst()
-                   .orElse(null);
-    }
-    
-    /**
-     * Get all followers
-     */
-    public List<RaftNode> getFollowers() {
-        return nodes.stream()
-                   .filter(node -> node.getRole() == RaftRole.FOLLOWER && !node.isCrashed())
-                   .toList();
-    }
-    
-    /**
-     * Get all candidates
-     */
-    public List<RaftNode> getCandidates() {
-        return nodes.stream()
-                   .filter(node -> node.getRole() == RaftRole.CANDIDATE && !node.isCrashed())
-                   .toList();
-    }
-    
-    /**
-     * Get all crashed nodes
-     */
-    public List<RaftNode> getCrashedNodes() {
-        return nodes.stream()
-                   .filter(RaftNode::isCrashed)
-                   .toList();
-    }
-    
-    /**
-     * Get all active (non-crashed) nodes
-     */
-    public List<RaftNode> getActiveNodes() {
-        return nodes.stream()
-                   .filter(node -> !node.isCrashed())
-                   .toList();
-    }
-    
-    /**
-     * Crash a specific node
-     */
-    public void crashNode(String nodeId) {
-        RaftNode node = nodeMap.get(nodeId);
-        if (node != null) {
-            node.crash();
+    public Optional<String> currentLeaderId() {
+        for (Map.Entry<String, RaftNode> entry : nodesById.entrySet()) {
+            RaftNode node = entry.getValue();
+            if (node.isUp() && node.getRole() == RaftRole.LEADER) {
+                return Optional.of(entry.getKey());
+            }
         }
+        return Optional.empty();
     }
     
     /**
-     * Recover a specific node
+     * Get a comprehensive dump of the current state of all nodes.
+     * 
+     * @return String representation of the current state
      */
-    public void recoverNode(String nodeId) {
-        RaftNode node = nodeMap.get(nodeId);
-        if (node != null) {
-            node.recover();
-        }
-    }
-    
-    /**
-     * Check if the cluster has a majority of active nodes
-     */
-    public boolean hasMajority() {
-        return getActiveNodes().size() > nodes.size() / 2;
-    }
-    
-    /**
-     * Check if the cluster is in a consistent state
-     */
-    public boolean isConsistent() {
-        List<RaftNode> activeNodes = getActiveNodes();
-        if (activeNodes.isEmpty()) return true;
+    public String dump() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("RaftModel State:\n");
+        sb.append("  Cluster time: ").append(cluster.getCurrentTime()).append("\n");
+        sb.append("  Nodes: ").append(nodesById.size()).append("\n");
+        sb.append("  Pending messages: ").append(cluster.getPendingMessageCount()).append("\n");
         
-        // Check if all active nodes have the same commit index
-        int commitIndex = activeNodes.get(0).getCommitIndex();
-        return activeNodes.stream()
-                         .allMatch(node -> node.getCommitIndex() == commitIndex);
+        Optional<String> leader = currentLeaderId();
+        if (leader.isPresent()) {
+            sb.append("  Current leader: ").append(leader.get()).append("\n");
+        } else {
+            sb.append("  Current leader: None\n");
+        }
+        
+        sb.append("\nNode Details:\n");
+        for (Map.Entry<String, RaftNode> entry : nodesById.entrySet()) {
+            String nodeId = entry.getKey();
+            RaftNode node = entry.getValue();
+            
+            sb.append("  ").append(nodeId).append(": ");
+            sb.append(node.isUp() ? "UP" : "DOWN").append(" ");
+            sb.append(node.getRole()).append(" ");
+            sb.append("term=").append(node.getCurrentTerm()).append(" ");
+            sb.append("commit=").append(node.getCommitIndex()).append(" ");
+            sb.append("logSize=").append(node.getLog().size());
+            
+            if (node.getRole() == RaftRole.LEADER) {
+                sb.append(" (LEADER)");
+            }
+            
+            sb.append("\n");
+        }
+        
+        return sb.toString();
     }
     
     /**
-     * Get the current term of the cluster
+     * Step the simulation forward by one time unit.
      */
-    public int getCurrentTerm() {
-        return nodes.stream()
-                   .mapToInt(RaftNode::getCurrentTerm)
-                   .max()
-                   .orElse(0);
+    public void step() {
+        cluster.step();
     }
     
     /**
-     * Get a summary of the cluster state
-     */
-    public ClusterState getClusterState() {
-        return new ClusterState(
-            getCurrentTerm(),
-            getLeader() != null ? getLeader().getNodeId() : null,
-            getActiveNodes().size(),
-            getCrashedNodes().size(),
-            isConsistent()
-        );
-    }
-    
-    /**
-     * Get all nodes
-     */
-    public List<RaftNode> getNodes() {
-        return new ArrayList<>(nodes);
-    }
-    
-    /**
-     * Get a specific node by ID
+     * Get a specific node by ID.
+     * 
+     * @param nodeId The node ID
+     * @return The RaftNode, or null if not found
      */
     public RaftNode getNode(String nodeId) {
-        return nodeMap.get(nodeId);
+        return nodesById.get(nodeId);
     }
     
     /**
-     * Get the number of nodes in the cluster
+     * Get all node IDs.
+     * 
+     * @return List of all node IDs
      */
-    public int getNodeCount() {
-        return nodes.size();
+    public List<String> getNodeIds() {
+        return new ArrayList<>(nodeIds);
     }
     
     /**
-     * Represents the current state of the cluster
+     * Get the current simulation time.
+     * 
+     * @return Current time in simulation steps
      */
-    public static class ClusterState {
-        private final int currentTerm;
-        private final String leaderId;
-        private final int activeNodes;
-        private final int crashedNodes;
-        private final boolean consistent;
-        
-        public ClusterState(int currentTerm, String leaderId, int activeNodes, int crashedNodes, boolean consistent) {
-            this.currentTerm = currentTerm;
-            this.leaderId = leaderId;
-            this.activeNodes = activeNodes;
-            this.crashedNodes = crashedNodes;
-            this.consistent = consistent;
-        }
-        
-        // Getters
-        public int getCurrentTerm() { return currentTerm; }
-        public String getLeaderId() { return leaderId; }
-        public int getActiveNodes() { return activeNodes; }
-        public int getCrashedNodes() { return crashedNodes; }
-        public boolean isConsistent() { return consistent; }
-        
-        @Override
-        public String toString() {
-            return String.format("ClusterState{term=%d, leader='%s', active=%d, crashed=%d, consistent=%s}", 
-                               currentTerm, leaderId, activeNodes, crashedNodes, consistent);
-        }
+    public int getCurrentTime() {
+        return cluster.getCurrentTime();
     }
 }
-
