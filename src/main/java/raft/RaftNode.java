@@ -1,5 +1,6 @@
 package raft;
 
+import sim.Cluster;
 import sim.Determinism;
 import sim.Message;
 import sim.MessageBus;
@@ -11,7 +12,7 @@ import java.util.concurrent.atomic.AtomicInteger;
  * Represents a single node in the Raft consensus algorithm.
  * Implements the core Raft protocol including leader election and log replication.
  */
-public class RaftNode {
+public class RaftNode implements Cluster.Node {
     private final String nodeId;
     private final List<String> peerIds;
     private MessageBus messageBus;
@@ -116,7 +117,7 @@ public class RaftNode {
         votedFor = nodeId;
         votesReceived = 1; // Vote for self
         lastHeartbeatTime = currentTime;
-        electionTimeout = 150 + determinism.nextInt(150);
+        electionTimeout = 150 + (determinism != null ? determinism.nextInt(150) : new Random().nextInt(150));
         
         // Send RequestVote RPCs to all peers
         RaftLogEntry lastEntry = getLastLogEntry();
@@ -375,6 +376,75 @@ public class RaftNode {
         votedFor = null;
         lastHeartbeatTime = System.currentTimeMillis();
         System.out.println(nodeId + " recovered");
+    }
+    
+    // Cluster.Node interface implementation
+    @Override
+    public String id() {
+        return nodeId;
+    }
+    
+    @Override
+    public boolean isUp() {
+        return !crashed;
+    }
+    
+    @Override
+    public void setUp(boolean up) {
+        if (up && crashed) {
+            recover();
+        } else if (!up && !crashed) {
+            crash();
+        }
+    }
+    
+    @Override
+    public void onTick(MessageBus bus) {
+        // This will be called by the cluster for each simulation step
+        // We'll use the current time from the message bus
+        long currentTime = bus.now();
+        
+        if (crashed || messageBus == null) return;
+        
+        switch (role) {
+            case FOLLOWER -> stepFollower(currentTime, null);
+            case CANDIDATE -> stepCandidate(currentTime, null);
+            case LEADER -> stepLeader(currentTime, null);
+        }
+    }
+    
+    @Override
+    public void onMessage(Message m, MessageBus bus) {
+        // Process incoming messages
+        String messageType = m.type;
+        
+        if ("RequestVote".equals(messageType)) {
+            RaftRpc.RequestVote request = (RaftRpc.RequestVote) m.get("requestVote");
+            handleRequestVote(request, m.from, null);
+        } else if ("RequestVoteResponse".equals(messageType)) {
+            RaftRpc.RequestVoteResponse response = (RaftRpc.RequestVoteResponse) m.get("requestVoteResponse");
+            handleRequestVoteResponse(response, null);
+        } else if ("AppendEntries".equals(messageType)) {
+            RaftRpc.AppendEntries request = (RaftRpc.AppendEntries) m.get("appendEntries");
+            handleAppendEntries(request, m.from, null);
+        } else if ("AppendEntriesResponse".equals(messageType)) {
+            RaftRpc.AppendEntriesResponse response = (RaftRpc.AppendEntriesResponse) m.get("appendEntriesResponse");
+            handleAppendEntriesResponse(response, m.from, null);
+        }
+    }
+    
+    @Override
+    public String dump() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("role=").append(role);
+        sb.append(", term=").append(currentTerm);
+        sb.append(", commitIndex=").append(commitIndex);
+        sb.append(", logSize=").append(log.size());
+        if (role == RaftRole.LEADER) {
+            sb.append(", nextIndex=").append(nextIndex);
+            sb.append(", matchIndex=").append(matchIndex);
+        }
+        return sb.toString();
     }
     
     // Getters
