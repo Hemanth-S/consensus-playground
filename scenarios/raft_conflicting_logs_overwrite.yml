@@ -1,0 +1,41 @@
+# Raft: Followers with divergent tails get overwritten by leader via AppendEntries
+model: raft
+description: "Tests log overwrite behavior when followers have divergent log tails. Verifies that leaders can force followers to adopt their log entries via AppendEntries RPCs."
+seed: 4242
+
+cluster:
+  nodes: [n1, n2, n3, n4, n5]
+  tickMs: 1
+
+initial:
+  nodeState: {}
+  logs:
+    # Seed a conflicting tail on n1 and n2 (term 1) that shouldn't survive
+    n1: [{term: 1, cmd: "SET ghost 99"}]
+    n2: [{term: 1, cmd: "SET ghost 99"}]
+    # Others clean
+    n3: []
+    n4: []
+    n5: []
+
+network: { rules: [] }
+
+timeline:
+  - at: 0
+    actions:
+      - kind: run
+        args: { ticks: 20 }           # elect some leader (likely n3/4/5)
+  - at: 21
+    actions:
+      - kind: clientwrite
+        args: { command: "SET x 10" } # committed entry should replace conflicting tails
+  - at: 35
+    actions:
+      - kind: run
+        args: { ticks: 10 }
+
+assertions:
+  - type: leader_exists
+    args: { after: 25 }
+  - type: log_consistency
+    args: { after: 45 }

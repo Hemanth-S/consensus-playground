@@ -2,6 +2,7 @@
 # Tests split vote handling and eventual leader election
 
 model: raft
+description: "Tests split vote scenarios with network delays. Simulates network partitions that can cause split votes and verifies that the system eventually elects a leader."
 seed: 54321
 
 cluster:

@@ -2,6 +2,7 @@
 # Tests leader election and recovery after a leader crashes
 
 model: raft
+description: "Tests leader election and recovery when the leader crashes. Verifies that a new leader is elected and client commands are properly handled during the transition."
 seed: 12345
 
 cluster:

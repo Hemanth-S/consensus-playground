@@ -1,0 +1,48 @@
+# Raft: A crashed follower misses several commits then catches up on recovery
+model: raft
+description: "Tests follower catchup after recovery. A crashed follower misses several commits then catches up to the leader's log via AppendEntries RPCs."
+seed: 31337
+
+cluster:
+  nodes: [n1, n2, n3, n4, n5]
+  tickMs: 1
+
+initial: { nodeState: {}, logs: {} }
+
+network: { rules: [] }
+
+timeline:
+  - at: 0
+    actions:
+      - kind: run
+        args: { ticks: 18 }               # elect leader
+  - at: 19
+    actions:
+      - kind: crash
+        args: { node: "n5" }              # take a follower down
+  - at: 20
+    actions:
+      - kind: clientwrite
+        args: { command: "SET k1 v1" }
+  - at: 23
+    actions:
+      - kind: clientwrite
+        args: { command: "SET k2 v2" }
+  - at: 26
+    actions:
+      - kind: clientwrite
+        args: { command: "SET k3 v3" }
+  - at: 30
+    actions:
+      - kind: recover
+        args: { node: "n5" }              # n5 should catch up via AppendEntries
+  - at: 31
+    actions:
+      - kind: run
+        args: { ticks: 15 }
+
+assertions:
+  - type: leader_exists
+    args: { after: 22 }
+  - type: log_consistency
+    args: { after: 42 }

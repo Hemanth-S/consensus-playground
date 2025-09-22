@@ -6,12 +6,22 @@ This document describes the YAML schema for consensus algorithm testing scenario
 
 ```yaml
 model: raft                    # Algorithm type: "raft" or "paxos"
+description: "..."            # Human-readable description (optional)
 seed: 12345                   # Random seed for deterministic testing
 cluster: <ClusterSpec>        # Cluster configuration
 initial: <InitialSpec>        # Initial state setup
 network: <NetworkSpec>        # Network behavior rules
 timeline: <List<TimedAction>> # Time-based actions
 assertions: <List<Assertion>> # Post-execution checks
+```
+
+## Description Field
+
+The `description` field is optional and provides a human-readable explanation of what the scenario tests. This description is automatically printed when the scenario is played, helping users understand the purpose and expected behavior of the test.
+
+Example:
+```yaml
+description: "Tests leader election and recovery when the leader crashes. Verifies that a new leader is elected and client commands are properly handled during the transition."
 ```
 
 ## ClusterSpec

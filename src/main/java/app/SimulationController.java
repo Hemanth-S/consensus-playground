@@ -75,6 +75,12 @@ public class SimulationController {
             return;
         }
         
+        // Print scenario description if available
+        if (scenario.description != null && !scenario.description.trim().isEmpty()) {
+            System.out.println("\n" + scenario.description);
+            System.out.println("=" + "=".repeat(scenario.description.length()));
+        }
+        
         // Find the last action time (make a copy to avoid concurrent modification)
         List<ScenarioLoader.TimedAction> timeline = new ArrayList<>(scenario.timeline);
         int lastActionTime = timeline.stream()
@@ -201,7 +207,11 @@ public class SimulationController {
                 Integer ticks = (Integer) action.args.get("ticks");
                 if (ticks != null) {
                     printWithTick("Running for " + ticks + " ticks");
-                    step(ticks);
+                    // Directly advance simulation without timeline execution to avoid infinite loop
+                    for (int i = 0; i < ticks; i++) {
+                        raftModel.step();
+                        currentTick++;
+                    }
                 }
             }
             default -> {

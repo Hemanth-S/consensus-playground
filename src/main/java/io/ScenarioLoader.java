@@ -1,5 +1,6 @@
 package io;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
 import raft.RaftModel;
@@ -104,8 +105,10 @@ public class ScenarioLoader {
 
 
     // Data classes for YAML binding
+    @JsonIgnoreProperties(ignoreUnknown = true)
     public static class Scenario {
         public String model; // "raft" or "paxos"
+        public String description; // Human-readable description of the scenario
         public Long seed;
         public ClusterSpec cluster;
         public InitialSpec initial;

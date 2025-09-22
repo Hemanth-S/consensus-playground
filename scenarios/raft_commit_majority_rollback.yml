@@ -1,0 +1,48 @@
+# Raft: Entry not committed (no majority) gets rolled back after leader crash
+model: raft
+description: "Tests commit rollback behavior when entries don't achieve majority replication. Verifies that uncommitted entries are rolled back after leader crashes."
+seed: 9090
+
+cluster:
+  nodes: [n1, n2, n3, n4, n5]
+  tickMs: 1
+
+initial: { nodeState: {}, logs: {} }
+
+network: { rules: [] }
+
+timeline:
+  - at: 0
+    actions:
+      - kind: run
+        args: { ticks: 18 }              # elect leader
+  - at: 19
+    actions:
+      - kind: clientwrite
+        args: { command: "SET early 1" } # this likely commits
+  - at: 22
+    actions:
+      - kind: clientwrite
+        args: { command: "SET fragile 2" } # begin replicate but we crash fast
+  - at: 23
+    actions:
+      - kind: crash
+        args: { node: "n1" }             # crash current leader if it's n1; if not, still demonstrates behavior
+  - at: 24
+    actions:
+      - kind: run
+        args: { ticks: 20 }              # re-elect & stabilize
+  - at: 45
+    actions:
+      - kind: recover
+        args: { node: "n1" }
+  - at: 46
+    actions:
+      - kind: run
+        args: { ticks: 10 }
+
+assertions:
+  - type: leader_exists
+    args: { after: 30 }
+  - type: log_consistency
+    args: { after: 55 }

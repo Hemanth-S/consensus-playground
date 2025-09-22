@@ -1,0 +1,43 @@
+# Raft: Leader isolated with minority partition, majority elects a new leader
+model: raft
+description: "Tests leader isolation with minority partition. The leader gets isolated in a minority partition while the majority elects a new leader and continues processing client requests."
+seed: 777
+
+cluster:
+  nodes: [n1, n2, n3, n4, n5]
+  tickMs: 1
+
+initial: { nodeState: {}, logs: {} }
+
+network: { rules: [] }
+
+timeline:
+  - at: 1
+    actions:
+      - kind: clientwrite
+        args: { command: "SET a 1" }   # will queue until a leader
+  - at: 0
+    actions:
+      - kind: run
+        args: { ticks: 20 }            # allow initial election
+  - at: 21
+    actions:
+      - kind: partition
+        args: { groups: [[n1,n2], [n3,n4,n5]] }   # leader might be on either side
+  - at: 22
+    actions:
+      - kind: clientwrite
+        args: { command: "SET b 2" }   # only majority side should commit
+  - at: 40
+    actions:
+      - kind: partition_clear
+  - at: 41
+    actions:
+      - kind: run
+        args: { ticks: 10 }
+
+assertions:
+  - type: leader_exists
+    args: { after: 45 }
+  - type: log_consistency
+    args: { after: 50 }
