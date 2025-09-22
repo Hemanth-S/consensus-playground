@@ -244,9 +244,14 @@ public class RaftNode implements Cluster.Node {
                 
                 // Append new entries
                 if (request.getEntries() != null && !request.getEntries().isEmpty()) {
-                    // Remove any conflicting entries
+                    // Remove any conflicting entries (use safe removal)
                     if (request.getPrevLogIndex() < log.size()) {
-                        log.subList(request.getPrevLogIndex(), log.size()).clear();
+                        int removeFrom = request.getPrevLogIndex();
+                        int removeTo = log.size();
+                        // Remove from end to beginning to avoid index shifting issues
+                        for (int i = removeTo - 1; i >= removeFrom; i--) {
+                            log.remove(i);
+                        }
                     }
                     // Append new entries
                     log.addAll(request.getEntries());
@@ -503,7 +508,10 @@ public class RaftNode implements Cluster.Node {
             // Get entries to send (from nextIdx to end of log)
             List<RaftLogEntry> entriesToSend = new ArrayList<>();
             if (nextIdx <= log.size()) {
-                entriesToSend = log.subList(nextIdx - 1, log.size());
+                // Use safe copying instead of subList to avoid concurrent modification
+                for (int i = nextIdx - 1; i < log.size(); i++) {
+                    entriesToSend.add(log.get(i));
+                }
             }
             
             RaftRpc.AppendEntries request = new RaftRpc.AppendEntries(

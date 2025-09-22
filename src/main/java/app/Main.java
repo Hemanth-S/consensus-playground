@@ -12,8 +12,6 @@ import java.util.Scanner;
  * Provides a command-line interface for loading scenarios and stepping through simulations.
  */
 public class Main {
-    private static final Scanner scanner = new Scanner(System.in);
-
     public static void main(String[] args) {
         System.out.println("Consensus Playground - Distributed Systems Simulation");
         System.out.println("=====================================================");
@@ -28,6 +26,7 @@ public class Main {
     }
     
     private static void runInteractiveMode() {
+        Scanner scanner = new Scanner(System.in);
         Commands commands = new Commands(scanner);
         
         // Print help banner
@@ -71,23 +70,24 @@ public class Main {
             Long seed = scenario.seed != null ? scenario.seed : System.currentTimeMillis();
             RaftModel model = new RaftModel(scenario.cluster.nodes, seed);
             
-            // Apply scenario to model
-            ScenarioLoader.apply(scenario, model);
+            // Apply initial state and network rules (pure, no time stepping)
+            ScenarioLoader.applyInitial(scenario, model);
+            ScenarioLoader.applyNetworkRules(scenario, model.cluster());
             
             System.out.println("Loaded scenario: " + scenarioPath.getFileName());
-            System.out.println("Cluster initialized with " + model.getNodeIds().size() + " nodes");
-            
-            // TODO: Execute timeline and print assertions
-            System.out.println("TODO: Execute timeline and validate assertions");
-            System.out.println("Assertions to validate:");
-            if (scenario.assertions != null) {
-                for (int i = 0; i < scenario.assertions.size(); i++) {
-                    var assertion = scenario.assertions.get(i);
-                    System.out.println("  [" + (i + 1) + "] " + assertion.type + " " + assertion.args);
-                }
-            } else {
-                System.out.println("  No assertions defined");
+            System.out.println("Cluster initialized with " + model.getNodeIds().size() + " nodes, seed=" + seed);
+            if (scenario.network != null && scenario.network.rules != null) {
+                System.out.println("Network rules: " + scenario.network.rules.size());
             }
+            if (scenario.timeline != null) {
+                System.out.println("Timeline actions: " + scenario.timeline.size());
+            }
+            if (scenario.assertions != null) {
+                System.out.println("Assertions: " + scenario.assertions.size());
+            }
+            
+            System.out.println("\nScenario loaded successfully!");
+            System.out.println("Use 'play' command to execute timeline and evaluate assertions.");
             
         } catch (Exception e) {
             System.err.println("Failed to load scenario: " + e.getMessage());

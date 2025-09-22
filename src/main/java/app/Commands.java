@@ -13,10 +13,11 @@ import java.util.regex.Pattern;
 
 /**
  * Command parser and executor for the consensus playground text UI.
- * Handles all user commands and delegates to RaftModel.
+ * Handles all user commands and delegates to RaftModel and SimulationController.
  */
 public class Commands {
-    private RaftModel model;
+    private RaftModel raftModel;
+    private SimulationController controller;
     private int speedMs = 1; // milliseconds per tick (stored but not used yet)
     private final Scanner scanner;
     
@@ -41,6 +42,7 @@ public class Commands {
                 case "init" -> handleInit(parts);
                 case "step" -> handleStep(parts);
                 case "run" -> handleRun(parts);
+                case "play" -> handlePlay(parts);
                 case "write" -> handleWrite(parts);
                 case "dump" -> handleDump(parts);
                 case "crash" -> handleCrash(parts);
@@ -86,14 +88,31 @@ public class Commands {
             }
             
             Long seed = scenario.seed != null ? scenario.seed : System.currentTimeMillis();
-            model = new RaftModel(scenario.cluster.nodes, seed);
-            ScenarioLoader.apply(scenario, model);
+            raftModel = new RaftModel(scenario.cluster.nodes, seed);
+            
+            // Apply initial state and network rules (pure, no time stepping)
+            ScenarioLoader.applyInitial(scenario, raftModel);
+            ScenarioLoader.applyNetworkRules(scenario, raftModel.cluster());
+            
+            // Create or update controller
+            if (controller == null) {
+                controller = new SimulationController(raftModel);
+            } else {
+                controller.attachScenario(scenario);
+            }
+            controller.attachScenario(scenario);
             
             System.out.println("Loaded scenario: " + scenarioPath.getFileName());
-            System.out.println("Cluster initialized with " + model.getNodeIds().size() + " nodes");
-            
-            // TODO: Execute timeline and print assertions
-            System.out.println("TODO: Execute timeline and validate assertions");
+            System.out.println("Cluster initialized with " + raftModel.getNodeIds().size() + " nodes, seed=" + seed);
+            if (scenario.network != null && scenario.network.rules != null) {
+                System.out.println("Network rules: " + scenario.network.rules.size());
+            }
+            if (scenario.timeline != null) {
+                System.out.println("Timeline actions: " + scenario.timeline.size());
+            }
+            if (scenario.assertions != null) {
+                System.out.println("Assertions: " + scenario.assertions.size());
+            }
             
         } catch (Exception e) {
             System.err.println("Failed to load scenario: " + e.getMessage());
@@ -124,12 +143,13 @@ public class Commands {
             nodeIds.add("n" + (i + 1));
         }
         
-        model = new RaftModel(nodeIds, seed);
+        raftModel = new RaftModel(nodeIds, seed);
+        controller = new SimulationController(raftModel);
         System.out.println("Initialized Raft cluster with " + nodeCount + " nodes, seed=" + seed);
     }
     
     private void handleStep(String[] parts) {
-        if (model == null) {
+        if (controller == null) {
             System.out.println("No model loaded. Use 'init' or 'load' first.");
             return;
         }
@@ -139,36 +159,39 @@ public class Commands {
             steps = Integer.parseInt(parts[1]);
         }
         
-        for (int i = 0; i < steps; i++) {
-            model.step();
-        }
-        
-        System.out.println("Stepped simulation " + steps + " time(s). Current time: " + model.getCurrentTime());
+        controller.step(steps);
+        System.out.println("Stepped simulation " + steps + " time(s). Current time: " + controller.now());
     }
     
     private void handleRun(String[] parts) {
-        if (model == null) {
+        if (controller == null) {
             System.out.println("No model loaded. Use 'init' or 'load' first.");
             return;
         }
         
-        int steps = 10; // default
+        int steps = 50; // default
         if (parts.length > 1) {
             steps = Integer.parseInt(parts[1]);
         }
         
         System.out.println("Running simulation for " + steps + " steps...");
-        for (int i = 0; i < steps; i++) {
-            model.step();
-            if (i % 5 == 0) { // Print status every 5 steps
-                System.out.println("  Step " + (i + 1) + ": time=" + model.getCurrentTime());
-            }
+        controller.step(steps);
+        System.out.println("Run complete. Final time: " + controller.now());
+    }
+    
+    private void handlePlay(String[] parts) {
+        if (controller == null) {
+            System.out.println("No model loaded. Use 'init' or 'load' first.");
+            return;
         }
-        System.out.println("Run complete. Final time: " + model.getCurrentTime());
+        
+        System.out.println("Playing scenario to completion...");
+        controller.playToEnd();
+        controller.evaluateAssertions();
     }
     
     private void handleWrite(String[] parts) {
-        if (model == null) {
+        if (raftModel == null) {
             System.out.println("No model loaded. Use 'init' or 'load' first.");
             return;
         }
@@ -182,12 +205,12 @@ public class Commands {
         String command = String.join(" ", Arrays.copyOfRange(parts, 1, parts.length));
         command = command.replaceAll("^\"|\"$", ""); // Remove surrounding quotes
         
-        model.clientWrite(command);
+        raftModel.clientWrite(command);
         System.out.println("Client write: " + command);
     }
     
     private void handleDump(String[] parts) {
-        if (model == null) {
+        if (raftModel == null) {
             System.out.println("No model loaded. Use 'init' or 'load' first.");
             return;
         }
@@ -197,16 +220,16 @@ public class Commands {
         switch (type) {
             case "nodes" -> {
                 System.out.println("Nodes:");
-                for (String nodeId : model.getNodeIds()) {
-                    var node = model.getNode(nodeId);
+                for (String nodeId : raftModel.getNodeIds()) {
+                    var node = raftModel.getNode(nodeId);
                     System.out.println("  " + nodeId + ": " + (node.isUp() ? "UP" : "DOWN") + 
                                      " " + node.getRole() + " term=" + node.getCurrentTerm());
                 }
             }
             case "logs" -> {
                 System.out.println("Logs:");
-                for (String nodeId : model.getNodeIds()) {
-                    var node = model.getNode(nodeId);
+                for (String nodeId : raftModel.getNodeIds()) {
+                    var node = raftModel.getNode(nodeId);
                     var log = node.getLog();
                     System.out.println("  " + nodeId + ": " + log.size() + " entries");
                     for (int i = 0; i < Math.min(log.size(), 5); i++) { // Show first 5 entries
@@ -219,7 +242,7 @@ public class Commands {
             }
             case "net" -> {
                 System.out.println("Network Rules:");
-                var rules = model.cluster().getMessageBus().getRules();
+                var rules = raftModel.cluster().getMessageBus().getRules();
                 if (rules.isEmpty()) {
                     System.out.println("  No network rules");
                 } else {
@@ -229,7 +252,7 @@ public class Commands {
                 }
             }
             case "state" -> {
-                System.out.println(model.dump());
+                System.out.println(raftModel.dump());
             }
             default -> {
                 System.out.println("Usage: dump [nodes|logs|net|state]");
@@ -238,7 +261,7 @@ public class Commands {
     }
     
     private void handleCrash(String[] parts) {
-        if (model == null) {
+        if (raftModel == null) {
             System.out.println("No model loaded. Use 'init' or 'load' first.");
             return;
         }
@@ -249,12 +272,12 @@ public class Commands {
         }
         
         String nodeId = parts[1];
-        model.crash(nodeId);
+        raftModel.crash(nodeId);
         System.out.println("Crashed node: " + nodeId);
     }
     
     private void handleRecover(String[] parts) {
-        if (model == null) {
+        if (raftModel == null) {
             System.out.println("No model loaded. Use 'init' or 'load' first.");
             return;
         }
@@ -265,12 +288,12 @@ public class Commands {
         }
         
         String nodeId = parts[1];
-        model.recover(nodeId);
+        raftModel.recover(nodeId);
         System.out.println("Recovered node: " + nodeId);
     }
     
     private void handlePartition(String[] parts) {
-        if (model == null) {
+        if (raftModel == null) {
             System.out.println("No model loaded. Use 'init' or 'load' first.");
             return;
         }
@@ -283,13 +306,13 @@ public class Commands {
         String subcommand = parts[1].toLowerCase();
         
         if ("clear".equals(subcommand)) {
-            model.clearPartitions();
+            raftModel.clearPartitions();
             System.out.println("Cleared all partitions");
         } else if ("add".equals(subcommand) && parts.length >= 4) {
             // Parse node groups (simplified - just two nodes for now)
             String nodeA = parts[2];
             String nodeB = parts[3];
-            model.partition(List.of(nodeA), List.of(nodeB));
+            raftModel.partition(List.of(nodeA), List.of(nodeB));
             System.out.println("Added partition between " + nodeA + " and " + nodeB);
         } else {
             System.out.println("Usage: partition add <A> <B> | partition clear");
@@ -297,7 +320,7 @@ public class Commands {
     }
     
     private void handleDelay(String[] parts) {
-        if (model == null) {
+        if (raftModel == null) {
             System.out.println("No model loaded. Use 'init' or 'load' first.");
             return;
         }
@@ -317,13 +340,13 @@ public class Commands {
         
         NetworkRule.Match match = new NetworkRule.Match(from, to, type, null, null, false);
         NetworkRule rule = new NetworkRule(match, NetworkRule.Action.DELAY, steps, 0.0);
-        model.cluster().getMessageBus().addRule(rule);
+        raftModel.cluster().getMessageBus().addRule(rule);
         
         System.out.println("Added delay rule: " + from + " -> " + to + " (" + type + ") delay=" + steps);
     }
     
     private void handleDrop(String[] parts) {
-        if (model == null) {
+        if (raftModel == null) {
             System.out.println("No model loaded. Use 'init' or 'load' first.");
             return;
         }
@@ -344,7 +367,7 @@ public class Commands {
         NetworkRule.Action action = pct < 1.0 ? NetworkRule.Action.DROP_PCT : NetworkRule.Action.DROP;
         NetworkRule.Match match = new NetworkRule.Match(from, to, type, null, null, false);
         NetworkRule rule = new NetworkRule(match, action, 0, pct);
-        model.cluster().getMessageBus().addRule(rule);
+        raftModel.cluster().getMessageBus().addRule(rule);
         
         System.out.println("Added drop rule: " + from + " -> " + to + " (" + type + ") pct=" + pct);
     }
@@ -378,7 +401,8 @@ public class Commands {
         System.out.println("  load <path>                    - Load scenario from YAML file");
         System.out.println("  init raft --nodes N --seed S   - Initialize Raft cluster");
         System.out.println("  step [N]                       - Step simulation N times (default: 1)");
-        System.out.println("  run [N]                        - Run simulation for N steps (default: 10)");
+        System.out.println("  run [N]                        - Run simulation for N steps (default: 50)");
+        System.out.println("  play                           - Play scenario to completion and evaluate assertions");
         System.out.println("  write \"<command>\"              - Send client command");
         System.out.println("  dump [nodes|logs|net|state]    - Dump cluster information");
         System.out.println("  crash <node>                   - Crash a node");

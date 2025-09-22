@@ -41,7 +41,8 @@ class ScenarioLoaderTest {
         
         // Create and apply to model
         RaftModel model = new RaftModel(scenario.cluster.nodes, scenario.seed);
-        ScenarioLoader.apply(scenario, model);
+        ScenarioLoader.applyInitial(scenario, model);
+        ScenarioLoader.applyNetworkRules(scenario, model.cluster());
         
         // Verify model was created successfully
         assertNotNull(model);

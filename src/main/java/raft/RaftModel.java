@@ -8,6 +8,8 @@ import sim.NetworkRule;
 
 import java.util.*;
 import java.util.stream.Collectors;
+import java.util.ArrayDeque;
+import java.util.Deque;
 
 /**
  * High-level abstraction for Raft consensus simulation.
@@ -20,6 +22,7 @@ public class RaftModel {
     private final Cluster cluster;
     private final Map<String, RaftNode> nodesById;
     private final List<String> nodeIds;
+    private final Deque<String> pendingClientCommands = new ArrayDeque<>();
     
     /**
      * Create a new RaftModel with the specified nodes and random seed.
@@ -125,19 +128,20 @@ public class RaftModel {
     
     /**
      * Send a client write command to the current leader.
-     * If no leader is known, sends to all nodes (naive approach).
-     * 
+     * If no leader exists, queue the command for later execution.
+     *
      * @param command The command to write
+     * @return true if command was handled immediately, false if queued
      */
-    public void clientWrite(String command) {
+    public boolean clientWrite(String command) {
         Optional<String> leaderId = currentLeaderId();
-        
+
         if (leaderId.isPresent()) {
             // Send to current leader
             RaftNode leader = nodesById.get(leaderId.get());
             if (leader != null && leader.isUp()) {
                 System.out.println("Client write to leader " + leaderId.get() + ": " + command);
-                
+
                 // Add command to leader's log and start replication
                 boolean success = leader.addClientCommand(command);
                 if (success) {
@@ -145,28 +149,14 @@ public class RaftModel {
                 } else {
                     System.out.println("Failed to add command to leader's log");
                 }
-            }
-        } else {
-            // No leader known, send to all nodes (naive approach)
-            System.out.println("No leader known, broadcasting client write to all nodes: " + command);
-            boolean handled = false;
-            for (String nodeId : nodeIds) {
-                RaftNode node = nodesById.get(nodeId);
-                if (node != null && node.isUp()) {
-                    boolean success = node.handleClientCommand(command);
-                    if (success) {
-                        System.out.println("  -> " + nodeId + " (handled as leader)");
-                        handled = true;
-                        break; // Only one node should handle it
-                    } else {
-                        System.out.println("  -> " + nodeId + " (not leader)");
-                    }
-                }
-            }
-            if (!handled) {
-                System.out.println("No active leader found to handle command");
+                return true;
             }
         }
+        
+        // No leader available, queue the command
+        pendingClientCommands.offer(command);
+        System.out.println("No leader yet; queued command: " + command);
+        return false;
     }
     
     /**
@@ -227,10 +217,33 @@ public class RaftModel {
     }
     
     /**
+     * Flush pending client commands to the current leader
+     */
+    public void flushPendingClientCommands() {
+        if (pendingClientCommands.isEmpty()) {
+            return;
+        }
+        
+        Optional<String> leaderId = currentLeaderId();
+        if (leaderId.isPresent()) {
+            RaftNode leader = nodesById.get(leaderId.get());
+            if (leader != null && leader.isUp()) {
+                System.out.println("Flushing " + pendingClientCommands.size() + " queued commands to leader " + leaderId.get());
+                while (!pendingClientCommands.isEmpty()) {
+                    String command = pendingClientCommands.poll();
+                    leader.addClientCommand(command);
+                    System.out.println("  Flushed: " + command);
+                }
+            }
+        }
+    }
+
+    /**
      * Step the simulation forward by one time unit.
      */
     public void step() {
         cluster.step();
+        flushPendingClientCommands();
     }
     
     /**
@@ -254,10 +267,54 @@ public class RaftModel {
     
     /**
      * Get the current simulation time.
-     * 
+     *
      * @return Current time in simulation steps
      */
     public int getCurrentTime() {
         return cluster.getCurrentTime();
+    }
+
+    /**
+     * Check if logs are prefix consistent across all nodes.
+     * This verifies the Raft log matching property.
+     *
+     * @return true if logs are prefix consistent, false otherwise
+     */
+    public boolean logsArePrefixConsistent() {
+        List<List<RaftLogEntry>> allLogs = new ArrayList<>();
+        
+        // Collect all logs
+        for (String nodeId : nodeIds) {
+            RaftNode node = nodesById.get(nodeId);
+            if (node != null && node.isUp()) {
+                allLogs.add(node.getLog());
+            }
+        }
+        
+        if (allLogs.size() <= 1) {
+            return true; // Trivially consistent
+        }
+        
+        // Check prefix consistency for all pairs
+        for (int i = 0; i < allLogs.size(); i++) {
+            for (int j = i + 1; j < allLogs.size(); j++) {
+                List<RaftLogEntry> log1 = allLogs.get(i);
+                List<RaftLogEntry> log2 = allLogs.get(j);
+                
+                int minLength = Math.min(log1.size(), log2.size());
+                
+                // Check that logs are identical up to min length
+                for (int k = 0; k < minLength; k++) {
+                    RaftLogEntry entry1 = log1.get(k);
+                    RaftLogEntry entry2 = log2.get(k);
+                    
+                    if (!entry1.equals(entry2)) {
+                        return false;
+                    }
+                }
+            }
+        }
+        
+        return true;
     }
 }

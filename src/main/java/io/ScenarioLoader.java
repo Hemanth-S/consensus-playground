@@ -27,30 +27,29 @@ public class ScenarioLoader {
     }
 
     /**
-     * Apply a scenario to a Raft model
+     * Apply initial state to a Raft model (pure, no time stepping)
      */
-    public static void apply(Scenario s, RaftModel model) {
+    public static void applyInitial(Scenario s, RaftModel model) {
         // Set seed if specified
         if (s.seed != null) {
             Determinism.setSeed(s.seed);
-        }
-
-        // Apply network rules
-        if (s.network != null && s.network.rules != null) {
-            for (RuleSpec ruleSpec : s.network.rules) {
-                NetworkRule rule = createNetworkRule(ruleSpec);
-                model.cluster().getMessageBus().addRule(rule);
-            }
         }
 
         // Apply initial state
         if (s.initial != null) {
             applyInitialState(s.initial, model);
         }
+    }
 
-        // Execute timeline actions
-        if (s.timeline != null) {
-            executeTimeline(s.timeline, model);
+    /**
+     * Apply network rules to a cluster (pure, no time stepping)
+     */
+    public static void applyNetworkRules(Scenario s, sim.Cluster cluster) {
+        if (s.network != null && s.network.rules != null) {
+            for (RuleSpec ruleSpec : s.network.rules) {
+                NetworkRule rule = createNetworkRule(ruleSpec);
+                cluster.getMessageBus().addRule(rule);
+            }
         }
     }
 
@@ -103,62 +102,6 @@ public class ScenarioLoader {
         }
     }
 
-    private static void executeTimeline(List<TimedAction> timeline, RaftModel model) {
-        int currentTime = 0;
-        
-        for (TimedAction timedAction : timeline) {
-            // Step simulation to the target time
-            while (currentTime < timedAction.at) {
-                model.step();
-                currentTime++;
-            }
-            
-            // Execute actions at this time
-            if (timedAction.actions != null) {
-                for (ActionSpec action : timedAction.actions) {
-                    executeAction(action, model);
-                }
-            }
-        }
-    }
-
-    private static void executeAction(ActionSpec action, RaftModel model) {
-        switch (action.kind.toLowerCase()) {
-            case "crash" -> {
-                String nodeId = (String) action.args.get("node");
-                if (nodeId != null) {
-                    model.crash(nodeId);
-                }
-            }
-            case "recover" -> {
-                String nodeId = (String) action.args.get("node");
-                if (nodeId != null) {
-                    model.recover(nodeId);
-                }
-            }
-            case "clientwrite" -> {
-                String command = (String) action.args.get("command");
-                if (command != null) {
-                    model.clientWrite(command);
-                }
-            }
-            case "partition" -> {
-                @SuppressWarnings("unchecked")
-                List<String> groupA = (List<String>) action.args.get("groupA");
-                @SuppressWarnings("unchecked")
-                List<String> groupB = (List<String>) action.args.get("groupB");
-                if (groupA != null && groupB != null) {
-                    model.partition(groupA, groupB);
-                }
-            }
-            case "clearpartitions" -> {
-                model.clearPartitions();
-            }
-            default -> {
-                System.out.println("Unknown action: " + action.kind);
-            }
-        }
-    }
 
     // Data classes for YAML binding
     public static class Scenario {
