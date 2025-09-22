@@ -1,7 +1,7 @@
 package app;
 
 import io.ScenarioLoader;
-import sim.Cluster;
+import raft.RaftModel;
 import sim.Determinism;
 
 import java.nio.file.Path;
@@ -13,14 +13,14 @@ import java.util.Scanner;
  */
 public class Main {
     private static final Scanner scanner = new Scanner(System.in);
-    private static Cluster currentCluster;
+    private static RaftModel currentModel;
     private static Determinism determinism;
 
     public static void main(String[] args) {
         System.out.println("Consensus Playground - Distributed Systems Simulation");
         System.out.println("=====================================================");
         
-        determinism = new Determinism();
+        // Determinism is now handled by RaftModel
         
         if (args.length > 0) {
             loadScenario(Path.of(args[0]));
@@ -72,35 +72,59 @@ public class Main {
     
     private static void loadScenario(Path scenarioPath) {
         try {
-            ScenarioLoader loader = new ScenarioLoader();
-            currentCluster = loader.loadScenario(scenarioPath);
+            ScenarioLoader.Scenario scenario = ScenarioLoader.load(scenarioPath);
+            
+            // Create RaftModel from scenario
+            if (!"raft".equals(scenario.model)) {
+                throw new IllegalArgumentException("Only 'raft' model is currently supported");
+            }
+            
+            if (scenario.cluster == null || scenario.cluster.nodes == null) {
+                throw new IllegalArgumentException("Scenario must specify cluster.nodes");
+            }
+            
+            Long seed = scenario.seed != null ? scenario.seed : System.currentTimeMillis();
+            currentModel = new RaftModel(scenario.cluster.nodes, seed);
+            
+            // Apply scenario to model
+            ScenarioLoader.apply(scenario, currentModel);
+            
             System.out.println("Loaded scenario: " + scenarioPath.getFileName());
-            System.out.println("Cluster initialized with " + currentCluster.getNodeCount() + " nodes");
+            System.out.println("Cluster initialized with " + currentModel.getNodeIds().size() + " nodes");
         } catch (Exception e) {
             System.err.println("Failed to load scenario: " + e.getMessage());
+            e.printStackTrace();
         }
     }
     
     private static void stepSimulation() {
-        if (currentCluster == null) {
+        if (currentModel == null) {
             System.out.println("No scenario loaded. Use 'load <file>' first.");
             return;
         }
         
-        currentCluster.step();
-        System.out.println("Simulation stepped. Current time: " + currentCluster.getCurrentTime());
+        currentModel.step();
+        System.out.println("Simulation stepped. Current time: " + currentModel.getCurrentTime());
     }
     
     private static void showStatus() {
-        if (currentCluster == null) {
+        if (currentModel == null) {
             System.out.println("No scenario loaded.");
             return;
         }
         
         System.out.println("Cluster Status:");
-        System.out.println("- Current time: " + currentCluster.getCurrentTime());
-        System.out.println("- Node count: " + currentCluster.getNodeCount());
-        System.out.println("- Pending messages: " + currentCluster.getPendingMessageCount());
+        System.out.println("- Current time: " + currentModel.getCurrentTime());
+        System.out.println("- Node count: " + currentModel.getNodeIds().size());
+        System.out.println("- Pending messages: " + currentModel.cluster().getPendingMessageCount());
+        
+        // Show current leader if any
+        var leader = currentModel.currentLeaderId();
+        if (leader.isPresent()) {
+            System.out.println("- Current leader: " + leader.get());
+        } else {
+            System.out.println("- Current leader: None");
+        }
     }
     
     private static void showHelp() {

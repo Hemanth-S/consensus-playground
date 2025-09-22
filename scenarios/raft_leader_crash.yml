@@ -1,20 +1,62 @@
-name: "Raft Leader Crash"
-description: "Simulates a Raft cluster where the leader crashes after 100 time units, testing leader election and recovery"
-nodeCount: 3
-networkRules:
-  - from: "*"
-    to: "*"
-    delay: 5
-    dropRate: 0.0
-events:
-  - time: 100
-    type: "crash"
-    data:
-      node: "node-0"
-      reason: "simulated_failure"
-  - time: 200
-    type: "recover"
-    data:
-      node: "node-0"
-      state: "follower"
+# Raft Leader Crash Scenario
+# Tests leader election and recovery after a leader crashes
 
+model: raft
+seed: 12345
+
+cluster:
+  nodes: [n1, n2, n3, n4, n5]
+  tickMs: 1
+
+initial:
+  nodeState:
+    # All nodes start as followers
+    n1: {crashed: false}
+    n2: {crashed: false}
+    n3: {crashed: false}
+    n4: {crashed: false}
+    n5: {crashed: false}
+  logs:
+    # Empty logs initially
+    n1: []
+    n2: []
+    n3: []
+    n4: []
+    n5: []
+
+network:
+  rules: []
+  # No network rules - clean network
+
+timeline:
+  - at: 1
+    actions:
+      - kind: clientwrite
+        args:
+          command: "SET key1 value1"
+  
+  - at: 3
+    actions:
+      - kind: crash
+        args:
+          node: "n1"
+  
+  - at: 10
+    actions:
+      - kind: clientwrite
+        args:
+          command: "SET key2 value2"
+  
+  - at: 15
+    actions:
+      - kind: recover
+        args:
+          node: "n1"
+
+assertions:
+  - type: leader_exists
+    args:
+      after: 20
+  - type: log_consistency
+    args:
+      after: 25

@@ -1,103 +1,155 @@
 # Scenario Schema Documentation
 
-This document describes the YAML schema for scenario files used in the consensus playground.
+This document describes the YAML schema for consensus algorithm testing scenarios.
 
-## Overview
-
-Scenario files define the initial state and behavior of a distributed system simulation, including:
-- Number of nodes in the cluster
-- Network topology and rules
-- Initial events and timing
-
-## Schema Structure
+## Top-Level Structure
 
 ```yaml
-name: string                    # Scenario name
-description: string             # Human-readable description
-nodeCount: integer              # Number of nodes in the cluster
-networkRules:                   # Optional network configuration
-  - from: string                # Source node ID
-    to: string                  # Destination node ID
-    delay: integer              # Message delay in time units
-    dropRate: double            # Message drop probability (0.0-1.0)
-events:                         # Optional initial events
-  - time: integer               # When the event occurs
-    type: string                # Event type identifier
-    data:                       # Event-specific data
-      key: value                # Arbitrary key-value pairs
+model: raft                    # Algorithm type: "raft" or "paxos"
+seed: 12345                   # Random seed for deterministic testing
+cluster: <ClusterSpec>        # Cluster configuration
+initial: <InitialSpec>        # Initial state setup
+network: <NetworkSpec>        # Network behavior rules
+timeline: <List<TimedAction>> # Time-based actions
+assertions: <List<Assertion>> # Post-execution checks
 ```
 
-## Example Scenarios
+## ClusterSpec
 
-### Basic Raft Cluster
+Defines the cluster topology and timing.
+
 ```yaml
-name: "Basic Raft Cluster"
-description: "Simple 3-node Raft cluster with no network issues"
-nodeCount: 3
+cluster:
+  nodes: [n1, n2, n3, n4, n5]  # List of node IDs
+  tickMs: 1                    # Simulation tick duration in milliseconds
 ```
 
-### Raft with Network Delays
+## InitialSpec
+
+Sets up the initial state of nodes and logs.
+
 ```yaml
-name: "Raft with Network Delays"
-description: "3-node Raft cluster with asymmetric network delays"
-nodeCount: 3
-networkRules:
-  - from: "node-0"
-    to: "node-1"
-    delay: 10
-    dropRate: 0.0
-  - from: "node-0"
-    to: "node-2"
-    delay: 20
-    dropRate: 0.1
+initial:
+  nodeState:                   # Per-node initial state
+    n1: {crashed: false}       # Node state properties
+    n2: {crashed: true}        # crashed: boolean
+  logs:                        # Per-node initial log entries
+    n1:                        # List of log entries for node n1
+      - term: 1                # Log entry term
+        cmd: "SET key value"   # Log entry command
 ```
 
-### Raft Leader Crash Scenario
+## NetworkSpec
+
+Defines network behavior through rules.
+
 ```yaml
-name: "Raft Leader Crash"
-description: "Leader crashes after 100 time units"
-nodeCount: 3
-events:
-  - time: 100
-    type: "crash"
-    data:
-      node: "node-0"
-      reason: "simulated_failure"
+network:
+  rules:                       # List of network rules
+    - match: <MatchSpec>       # Message matching criteria
+      action: "drop"           # Action: "pass", "drop", "delay", "drop_pct"
+      delaySteps: 5            # Delay in simulation steps (for "delay")
+      pct: 0.1                 # Drop percentage (for "drop_pct")
 ```
 
-## Event Types
+## MatchSpec
 
-### Crash Events
-- **Type**: `crash`
-- **Data**:
-  - `node`: Node ID to crash
-  - `reason`: Optional reason string
+Specifies which messages a rule applies to.
 
-### Recovery Events
-- **Type**: `recover`
-- **Data**:
-  - `node`: Node ID to recover
-  - `state`: Optional initial state
+```yaml
+match:
+  from: "n1"                   # Source node ID, "*" for any
+  to: "n2"                     # Destination node ID, "*" for any
+  type: "RequestVote"          # Message type, "*" for any
+  between: [n1, n2]            # Alternative: specify node pair
+  bidirectional: true          # Apply rule to both directions
+```
 
-### Network Partition Events
-- **Type**: `partition`
-- **Data**:
-  - `nodes`: List of node IDs in partition
-  - `duration`: How long the partition lasts
+## TimedAction
 
-## Network Rules
+Executes actions at specific simulation times.
 
-Network rules define the behavior of message passing between nodes:
+```yaml
+timeline:
+  - at: 10                     # Simulation time to execute
+    actions:                   # List of actions to execute
+      - kind: "crash"          # Action type
+        args:                  # Action-specific arguments
+          node: "n1"
+```
 
-- **delay**: Minimum time units before a message is delivered
-- **dropRate**: Probability (0.0-1.0) that a message is dropped and never delivered
-- **from/to**: Use `"*"` to match any node
+## ActionSpec
 
-## Best Practices
+Individual actions that can be executed.
 
-1. **Naming**: Use descriptive names and descriptions
-2. **Node IDs**: Follow consistent naming patterns (e.g., "node-0", "node-1")
-3. **Timing**: Use reasonable time units for delays and events
-4. **Testing**: Start with simple scenarios and add complexity gradually
-5. **Documentation**: Include clear descriptions of what each scenario tests
+### Supported Actions
 
+- **crash**: Crash a node
+  ```yaml
+  kind: "crash"
+  args: {node: "n1"}
+  ```
+
+- **recover**: Recover a crashed node
+  ```yaml
+  kind: "recover"
+  args: {node: "n1"}
+  ```
+
+- **clientwrite**: Send a client command
+  ```yaml
+  kind: "clientwrite"
+  args: {command: "SET key value"}
+  ```
+
+- **partition**: Create network partition
+  ```yaml
+  kind: "partition"
+  args: {groupA: [n1, n2], groupB: [n3, n4, n5]}
+  ```
+
+- **clearpartitions**: Remove all network partitions
+  ```yaml
+  kind: "clearpartitions"
+  args: {}
+  ```
+
+## Assertion
+
+Post-execution checks to validate scenario outcomes.
+
+```yaml
+assertions:
+  - type: "leader_exists"      # Assertion type
+    args:                      # Assertion-specific arguments
+      after: 20                # Check after this simulation time
+```
+
+### Supported Assertions
+
+- **leader_exists**: Verify a leader exists
+  ```yaml
+  type: "leader_exists"
+  args: {after: 20}
+  ```
+
+- **log_consistency**: Verify log consistency across nodes
+  ```yaml
+  type: "log_consistency"
+  args: {after: 25}
+  ```
+
+- **no_split_brain**: Verify no split-brain scenario
+  ```yaml
+  type: "no_split_brain"
+  args: {after: 30}
+  ```
+
+## Example Usage
+
+```java
+// Load and apply a scenario
+Scenario scenario = ScenarioLoader.load(Paths.get("scenarios/raft_leader_crash.yml"));
+RaftModel model = new RaftModel(scenario.cluster.nodes, scenario.seed);
+ScenarioLoader.apply(scenario, model);
+```
