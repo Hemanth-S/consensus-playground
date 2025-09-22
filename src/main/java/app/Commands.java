@@ -398,7 +398,7 @@ public class Commands {
     
     private void showHelp() {
         System.out.println("Available commands:");
-        System.out.println("  load <path>                    - Load scenario from YAML file");
+        System.out.println("  load [path]                    - Load scenario from YAML file (interactive if no path)");
         System.out.println("  init raft --nodes N --seed S   - Initialize Raft cluster");
         System.out.println("  step [N]                       - Step simulation N times (default: 1)");
         System.out.println("  run [N]                        - Run simulation for N steps (default: 50)");
