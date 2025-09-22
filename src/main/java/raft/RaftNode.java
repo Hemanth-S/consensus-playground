@@ -42,7 +42,7 @@ public class RaftNode implements Cluster.Node {
         this.nodeId = nodeId;
         this.peerIds = new ArrayList<>(peerIds);
         this.messageBus = messageBus;
-        this.electionTimeout = 150 + new Random().nextInt(150); // 150-300ms
+        this.electionTimeout = 5 + new Random().nextInt(10); // 5-15 steps for testing
         this.heartbeatTimeout = 50; // 50ms
     }
     
@@ -50,7 +50,7 @@ public class RaftNode implements Cluster.Node {
         this.nodeId = nodeId;
         this.peerIds = new ArrayList<>(peerIds);
         this.messageBus = null; // Will be set later
-        this.electionTimeout = 150 + new Random().nextInt(150); // 150-300ms
+        this.electionTimeout = 5 + new Random().nextInt(10); // 5-15 steps for testing
         this.heartbeatTimeout = 50; // 50ms
     }
     
@@ -64,7 +64,7 @@ public class RaftNode implements Cluster.Node {
     /**
      * Step the node forward by one time unit
      */
-    public void step(long currentTime, Determinism determinism) {
+    public void step(int currentTime, Determinism determinism) {
         if (crashed || messageBus == null) return;
         
         switch (role) {
@@ -80,7 +80,7 @@ public class RaftNode implements Cluster.Node {
     /**
      * Step follower logic
      */
-    private void stepFollower(long currentTime, Determinism determinism) {
+    private void stepFollower(int currentTime, Determinism determinism) {
         // Check if election timeout has passed
         if (currentTime - lastHeartbeatTime > electionTimeout) {
             startElection(currentTime, determinism);
@@ -90,7 +90,7 @@ public class RaftNode implements Cluster.Node {
     /**
      * Step candidate logic
      */
-    private void stepCandidate(long currentTime, Determinism determinism) {
+    private void stepCandidate(int currentTime, Determinism determinism) {
         // Check if election timeout has passed
         if (currentTime - lastHeartbeatTime > electionTimeout) {
             startElection(currentTime, determinism);
@@ -100,7 +100,7 @@ public class RaftNode implements Cluster.Node {
     /**
      * Step leader logic
      */
-    private void stepLeader(long currentTime, Determinism determinism) {
+    private void stepLeader(int currentTime, Determinism determinism) {
         // Send heartbeats periodically
         if (currentTime - lastHeartbeatTime > heartbeatTimeout) {
             sendHeartbeats(currentTime, determinism);
@@ -111,13 +111,13 @@ public class RaftNode implements Cluster.Node {
     /**
      * Start a new election
      */
-    private void startElection(long currentTime, Determinism determinism) {
+    private void startElection(int currentTime, Determinism determinism) {
         currentTerm++;
         role = RaftRole.CANDIDATE;
         votedFor = nodeId;
         votesReceived = 1; // Vote for self
         lastHeartbeatTime = currentTime;
-        electionTimeout = 150 + (determinism != null ? determinism.nextInt(150) : new Random().nextInt(150));
+        electionTimeout = 5 + (determinism != null ? determinism.nextInt(10) : new Random().nextInt(10));
         
         // Send RequestVote RPCs to all peers
         RaftLogEntry lastEntry = getLastLogEntry();
@@ -139,7 +139,7 @@ public class RaftNode implements Cluster.Node {
     /**
      * Send heartbeats to all followers
      */
-    private void sendHeartbeats(long currentTime, Determinism determinism) {
+    private void sendHeartbeats(int currentTime, Determinism determinism) {
         for (String peerId : peerIds) {
             RaftRpc.AppendEntries heartbeat = new RaftRpc.AppendEntries(
                 currentTerm, nodeId, 
@@ -155,7 +155,7 @@ public class RaftNode implements Cluster.Node {
     /**
      * Process incoming messages
      */
-    private void processMessages(long currentTime, Determinism determinism) {
+    private void processMessages(int currentTime, Determinism determinism) {
         List<Message> messages = messageBus.getAllMessages(nodeId);
         for (Message message : messages) {
             String messageType = message.type;
@@ -193,7 +193,7 @@ public class RaftNode implements Cluster.Node {
             isUpToDate(request.getLastLogIndex(), request.getLastLogTerm())) {
             votedFor = candidateId;
             voteGranted = true;
-            lastHeartbeatTime = System.currentTimeMillis(); // Reset election timeout
+            lastHeartbeatTime = messageBus.now(); // Reset election timeout
         }
         
         RaftRpc.RequestVoteResponse response = new RaftRpc.RequestVoteResponse(currentTerm, voteGranted);
@@ -216,7 +216,9 @@ public class RaftNode implements Cluster.Node {
         if (role == RaftRole.CANDIDATE && response.getTerm() == currentTerm) {
             if (response.isVoteGranted()) {
                 votesReceived++;
-                if (votesReceived > peerIds.size() / 2) {
+                // Need majority of total nodes (including self)
+                int totalNodes = peerIds.size() + 1; // +1 for self
+                if (votesReceived > totalNodes / 2) {
                     becomeLeader(determinism);
                 }
             }
@@ -233,7 +235,7 @@ public class RaftNode implements Cluster.Node {
             currentTerm = request.getTerm();
             role = RaftRole.FOLLOWER;
             votedFor = null;
-            lastHeartbeatTime = System.currentTimeMillis();
+            lastHeartbeatTime = messageBus.now();
             
             if (request.getPrevLogIndex() == 0 || 
                 (request.getPrevLogIndex() <= log.size() && 
@@ -303,7 +305,7 @@ public class RaftNode implements Cluster.Node {
         }
         
         // Send initial heartbeats
-        sendHeartbeats(System.currentTimeMillis(), determinism);
+        sendHeartbeats(messageBus.now(), determinism);
     }
     
     /**
@@ -379,7 +381,7 @@ public class RaftNode implements Cluster.Node {
         crashed = false;
         role = RaftRole.FOLLOWER;
         votedFor = null;
-        lastHeartbeatTime = System.currentTimeMillis();
+        lastHeartbeatTime = messageBus != null ? messageBus.now() : 0;
         System.out.println(nodeId + " recovered");
     }
     
@@ -407,7 +409,7 @@ public class RaftNode implements Cluster.Node {
     public void onTick(MessageBus bus) {
         // This will be called by the cluster for each simulation step
         // We'll use the current time from the message bus
-        long currentTime = bus.now();
+        int currentTime = bus.now();
         
         if (crashed || messageBus == null) return;
         
