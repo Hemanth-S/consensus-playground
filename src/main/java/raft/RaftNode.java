@@ -42,16 +42,26 @@ public class RaftNode implements Cluster.Node {
         this.nodeId = nodeId;
         this.peerIds = new ArrayList<>(peerIds);
         this.messageBus = messageBus;
-        this.electionTimeout = 5 + new Random().nextInt(10); // 5-15 steps for testing
-        this.heartbeatTimeout = 50; // 50ms
+        this.electionTimeout = 9 + new Random().nextInt(7); // 9-15 steps for testing
+        this.heartbeatTimeout = 2 + new Random().nextInt(3); // 2-4 ticks
+        
+        // Print initialization message with tick prefix if messageBus is available
+        if (messageBus != null) {
+            printWithTick("Initialized node " + nodeId + " with " + peerIds.size() + " peers (electionTimeout=" + electionTimeout + ", heartbeatTimeout=" + heartbeatTimeout + ")");
+        } else {
+            System.out.println("Initialized node " + nodeId + " with " + peerIds.size() + " peers (electionTimeout=" + electionTimeout + ", heartbeatTimeout=" + heartbeatTimeout + ")");
+        }
     }
     
     public RaftNode(String nodeId, List<String> peerIds) {
         this.nodeId = nodeId;
         this.peerIds = new ArrayList<>(peerIds);
         this.messageBus = null; // Will be set later
-        this.electionTimeout = 5 + new Random().nextInt(10); // 5-15 steps for testing
-        this.heartbeatTimeout = 50; // 50ms
+        this.electionTimeout = 9 + new Random().nextInt(7); // 9-15 steps for testing
+        this.heartbeatTimeout = 2 + new Random().nextInt(3); // 2-4 ticks
+        
+        // Print initialization message (no tick prefix since messageBus is null)
+        System.out.println("Initialized node " + nodeId + " with " + peerIds.size() + " peers (electionTimeout=" + electionTimeout + ", heartbeatTimeout=" + heartbeatTimeout + ")");
     }
     
     /**
@@ -117,7 +127,7 @@ public class RaftNode implements Cluster.Node {
         votedFor = nodeId;
         votesReceived = 1; // Vote for self
         lastHeartbeatTime = currentTime;
-        electionTimeout = 5 + (determinism != null ? determinism.nextInt(10) : new Random().nextInt(10));
+        electionTimeout = 9 + (determinism != null ? determinism.nextInt(7) : new Random().nextInt(7));
         
         // Send RequestVote RPCs to all peers
         RaftLogEntry lastEntry = getLastLogEntry();
@@ -133,7 +143,7 @@ public class RaftNode implements Cluster.Node {
             messageBus.send(message);
         }
         
-        System.out.println(nodeId + " started election for term " + currentTerm);
+        printWithTick(nodeId + " started election for term " + currentTerm);
     }
     
     /**
@@ -301,7 +311,7 @@ public class RaftNode implements Cluster.Node {
      */
     private void becomeLeader(Determinism determinism) {
         role = RaftRole.LEADER;
-        System.out.println(nodeId + " became leader for term " + currentTerm);
+        printWithTick(nodeId + " became leader for term " + currentTerm);
         
         // Initialize leader state
         for (String peerId : peerIds) {
@@ -376,7 +386,7 @@ public class RaftNode implements Cluster.Node {
     public void crash() {
         crashed = true;
         role = RaftRole.FOLLOWER;
-        System.out.println(nodeId + " crashed");
+        printWithTick(nodeId + " crashed");
     }
     
     /**
@@ -387,7 +397,7 @@ public class RaftNode implements Cluster.Node {
         role = RaftRole.FOLLOWER;
         votedFor = null;
         lastHeartbeatTime = messageBus != null ? messageBus.now() : 0;
-        System.out.println(nodeId + " recovered");
+        printWithTick(nodeId + " recovered");
     }
     
     // Cluster.Node interface implementation
@@ -547,5 +557,12 @@ public class RaftNode implements Cluster.Node {
     public boolean isCrashed() { return crashed; }
     public int getCommitIndex() { return commitIndex; }
     public List<RaftLogEntry> getLog() { return new ArrayList<>(log); }
+    
+    /**
+     * Print a message with the current tick prefix
+     */
+    private void printWithTick(String message) {
+        System.out.println("t=" + messageBus.now() + " " + message);
+    }
 }
 

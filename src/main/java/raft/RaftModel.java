@@ -70,9 +70,8 @@ public class RaftModel {
         RaftNode node = nodesById.get(id);
         if (node != null) {
             node.setUp(false);
-            System.out.println("Node " + id + " crashed");
         } else {
-            System.out.println("Node " + id + " not found");
+            printWithTick("Node " + id + " not found");
         }
     }
     
@@ -85,9 +84,8 @@ public class RaftModel {
         RaftNode node = nodesById.get(id);
         if (node != null) {
             node.setUp(true);
-            System.out.println("Node " + id + " recovered");
         } else {
-            System.out.println("Node " + id + " not found");
+            printWithTick("Node " + id + " not found");
         }
     }
     
@@ -114,7 +112,7 @@ public class RaftModel {
             }
         }
         
-        System.out.println("Network partition created between groups: " + groupA + " and " + groupB);
+        printWithTick("Network partition created between groups: " + groupA + " and " + groupB);
     }
     
     /**
@@ -123,7 +121,7 @@ public class RaftModel {
     public void clearPartitions() {
         MessageBus bus = cluster.getMessageBus();
         bus.clearRules();
-        System.out.println("Network partitions cleared (all rules removed)");
+        printWithTick("Network partitions cleared (all rules removed)");
     }
     
     /**
@@ -140,14 +138,14 @@ public class RaftModel {
             // Send to current leader
             RaftNode leader = nodesById.get(leaderId.get());
             if (leader != null && leader.isUp()) {
-                System.out.println("Client write to leader " + leaderId.get() + ": " + command);
+                printWithTick("Client write to leader " + leaderId.get() + ": " + command);
 
                 // Add command to leader's log and start replication
                 boolean success = leader.addClientCommand(command);
                 if (success) {
-                    System.out.println("Command added to leader's log and replication started");
+                    printWithTick("Command added to leader's log and replication started");
                 } else {
-                    System.out.println("Failed to add command to leader's log");
+                    printWithTick("Failed to add command to leader's log");
                 }
                 return true;
             }
@@ -155,7 +153,7 @@ public class RaftModel {
         
         // No leader available, queue the command
         pendingClientCommands.offer(command);
-        System.out.println("No leader yet; queued command: " + command);
+        printWithTick("No leader yet; queued command: " + command);
         return false;
     }
     
@@ -228,11 +226,11 @@ public class RaftModel {
         if (leaderId.isPresent()) {
             RaftNode leader = nodesById.get(leaderId.get());
             if (leader != null && leader.isUp()) {
-                System.out.println("Flushing " + pendingClientCommands.size() + " queued commands to leader " + leaderId.get());
+                printWithTick("Flushing " + pendingClientCommands.size() + " queued commands to leader " + leaderId.get());
                 while (!pendingClientCommands.isEmpty()) {
                     String command = pendingClientCommands.poll();
                     leader.addClientCommand(command);
-                    System.out.println("  Flushed: " + command);
+                    printWithTick("  Flushed: " + command);
                 }
             }
         }
@@ -272,6 +270,13 @@ public class RaftModel {
      */
     public int getCurrentTime() {
         return cluster.getCurrentTime();
+    }
+    
+    /**
+     * Print a message with the current tick prefix
+     */
+    private void printWithTick(String message) {
+        System.out.println("t=" + getCurrentTime() + " " + message);
     }
 
     /**

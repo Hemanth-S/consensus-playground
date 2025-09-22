@@ -37,6 +37,13 @@ public class SimulationController {
     }
     
     /**
+     * Print a message with the current tick prefix
+     */
+    private void printWithTick(String message) {
+        System.out.println("t=" + currentTick + " " + message);
+    }
+    
+    /**
      * Execute one simulation step
      */
     public void step() {
@@ -137,6 +144,7 @@ public class SimulationController {
             case "clientwrite" -> {
                 String command = (String) action.args.get("command");
                 if (command != null) {
+                    printWithTick("Client write: " + command);
                     raftModel.clientWrite(command);
                 }
             }
@@ -156,10 +164,12 @@ public class SimulationController {
                 @SuppressWarnings("unchecked")
                 List<List<String>> groups = (List<List<String>>) action.args.get("groups");
                 if (groups != null && groups.size() >= 2) {
+                    printWithTick("Adding partition between " + groups.get(0) + " and " + groups.get(1));
                     raftModel.partition(groups.get(0), groups.get(1));
                 }
             }
             case "partition_clear" -> {
+                printWithTick("Clearing all partitions");
                 raftModel.clearPartitions();
             }
             case "delay" -> {
@@ -168,6 +178,7 @@ public class SimulationController {
                 String type = (String) action.args.getOrDefault("type", "*");
                 Integer steps = (Integer) action.args.get("steps");
                 if (from != null && to != null && steps != null) {
+                    printWithTick("Adding delay rule: " + from + " -> " + to + " (" + type + ") delay=" + steps);
                     NetworkRule.Match match = new NetworkRule.Match(from, to, type, null, null, false);
                     NetworkRule rule = new NetworkRule(match, NetworkRule.Action.DELAY, steps, 0.0);
                     raftModel.cluster().getMessageBus().addRule(rule);
@@ -179,6 +190,7 @@ public class SimulationController {
                 String type = (String) action.args.getOrDefault("type", "*");
                 Double pct = (Double) action.args.getOrDefault("pct", 1.0);
                 if (from != null && to != null) {
+                    printWithTick("Adding drop rule: " + from + " -> " + to + " (" + type + ") pct=" + pct);
                     NetworkRule.Action actionType = pct < 1.0 ? NetworkRule.Action.DROP_PCT : NetworkRule.Action.DROP;
                     NetworkRule.Match match = new NetworkRule.Match(from, to, type, null, null, false);
                     NetworkRule rule = new NetworkRule(match, actionType, 0, pct);
@@ -188,11 +200,12 @@ public class SimulationController {
             case "run" -> {
                 Integer ticks = (Integer) action.args.get("ticks");
                 if (ticks != null) {
+                    printWithTick("Running for " + ticks + " ticks");
                     step(ticks);
                 }
             }
             default -> {
-                System.out.println("Unknown action: " + action.kind);
+                printWithTick("Unknown action: " + action.kind);
             }
         }
     }
@@ -246,9 +259,9 @@ public class SimulationController {
         
         var leader = raftModel.currentLeaderId();
         if (leader.isPresent()) {
-            System.out.println("[" + index + "] PASS leader_exists after=" + after + " leader=" + leader.get() + " at t=" + currentTick);
+            System.out.println("[" + index + "] PASS leader_exists after=" + after + " leader=" + leader.get());
         } else {
-            System.out.println("[" + index + "] FAIL leader_exists after=" + after + " (no leader at t=" + currentTick + ")");
+            System.out.println("[" + index + "] FAIL leader_exists after=" + after + " (no leader)");
         }
     }
     
@@ -268,9 +281,9 @@ public class SimulationController {
         }
         
         if (raftModel.logsArePrefixConsistent()) {
-            System.out.println("[" + index + "] PASS log_consistency after=" + after + " at t=" + currentTick);
+            System.out.println("[" + index + "] PASS log_consistency after=" + after);
         } else {
-            System.out.println("[" + index + "] FAIL log_consistency after=" + after + " at t=" + currentTick);
+            System.out.println("[" + index + "] FAIL log_consistency after=" + after);
             // TODO: Add brief diff showing node ids and lengths
         }
     }
